@@ -1,0 +1,72 @@
+name: Engine self-test
+
+# End-to-end check of the translation layer: builds a small x86-64 test
+# AppImage, ports it, runs it under the engine on Linux, then builds the
+# iOS app around it and publishes it as the "selftest" pre-release.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Engine/**
+      - Template/**
+      - Tools/**
+      - .github/workflows/selftest.yml
+      - .github/workflows/build-ipa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q squashfs-tools zlib1g-dev
+
+      - name: Cache engine
+        id: engine-cache
+        uses: actions/cache@v4
+        with:
+          path: build/engine-host
+          key: engine-host-v1-${{ runner.os }}-${{ hashFiles('Engine/**') }}
+
+      - name: Build engine for Linux
+        if: steps.engine-cache.outputs.cache-hit != 'true'
+        run: sh Engine/build-engine.sh host build/engine-host
+
+      - name: Build test AppImage
+        run: sh Engine/test/make-test-appimage.sh Hello.AppImage
+
+      - name: Port it
+        run: python3 Tools/port/port.py --src Hello.AppImage --name "Hello iNux" --out Generated --no-apt
+
+      - name: Run it under the engine
+        run: >
+          python3 Tools/port/smoke.py Generated build/engine-host/bin/inux-run
+          --args=--interactive --stdin "iNux CI" --expect "Nice to meet you, iNux CI."
+
+      - name: Pack payload
+        run: tar -czf payload.tgz Generated
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selftest-payload
+          path: payload.tgz
+          retention-days: 3
+
+  ios:
+    needs: linux
+    uses: ./.github/workflows/build-ipa.yml
+    with:
+      payload_artifact: selftest-payload
+      app_name: Hello iNux
+      bundle_suffix: selftest
+      ipa_name: HelloINux-selftest.ipa
+      release_tag: selftest
+      release_notes: "Engine self-test: a small x86-64 Linux program running under the iNux translation layer. Unsigned."
+      replace_release: true
