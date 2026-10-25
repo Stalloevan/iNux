@@ -38,10 +38,15 @@ if ! ./configure --enable-vfs --disable-overlays --disable-jit --disable-fork \
 fi
 
 # Settings probed on the build host that must not leak into the iOS build.
+# (macOS has them, the iPhoneOS SDK does not.)
 if [ "$TARGET" = ios ]; then
-  sed -e 's@^#define HAVE_FORK@// #define HAVE_FORK@' \
-      -e 's@^#define HAVE_LIBUNWIND@// #define HAVE_LIBUNWIND@' \
-      config.h > config.h.tmp && mv config.h.tmp config.h
+  for feature in HAVE_FORK HAVE_LIBUNWIND HAVE_SYS_GETENTROPY HAVE_GETENTROPY \
+                 HAVE_CLOCK_SETTIME HAVE_SYS_GETRANDOM HAVE_GETRANDOM HAVE_FEXECVE \
+                 HAVE_SYSINFO HAVE_GETDOMAINNAME; do
+    sed -e "s@^#define ${feature}\$@// #define ${feature}@" config.h > config.h.tmp
+    mv config.h.tmp config.h
+  done
+  grep -n "define HAVE_" config.h || true
 fi
 
 CFG_CFLAGS=$(sed -n 's/^CFLAGS = //p' config.mk)
