@@ -52,10 +52,13 @@ case "$TARGET" in
     SDK=$(xcrun --sdk iphoneos --show-sdk-path)
     CC="xcrun --sdk iphoneos clang"
     ARCHFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=16.0"
+    # Darwin has no public fdatasync(); Blink's VFS calls it directly.
+    TARGET_DEFS="-Dfdatasync=fsync"
     ;;
   host)
     CC=${CC:-cc}
     ARCHFLAGS=""
+    TARGET_DEFS=""
     ;;
   *)
     echo "unknown target $TARGET" >&2
@@ -66,7 +69,7 @@ esac
 HOST_SYSTEM=$(uname -s)
 COMMON="$ARCHFLAGS -O2 -g0 -U_FORTIFY_SOURCE -fno-common -Wno-strict-aliasing \
   -fno-strict-aliasing -Wno-unused-command-line-argument -w \
-  $CFG_CFLAGS $CFG_CPPFLAGS -iquote. -DNOLINEAR"
+  $CFG_CFLAGS $CFG_CPPFLAGS -iquote. -DNOLINEAR $TARGET_DEFS"
 SHIM="-include $HERE/shim/inux_shim.h"
 # Single quotes survive the eval below, so the macros become C strings.
 INFO="'-DBUILD_MODE=\"inux\"' '-DBUILD_TOOLCHAIN=\"clang\"' \
@@ -97,7 +100,7 @@ done
 echo "$CC $ARCHFLAGS -O2 -w -c $HERE/shim/inux_engine.c -o $OBJ/inux_engine.o" >> "$JOBS"
 
 NPROC=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-if ! tr '\n' '\0' < "$JOBS" | xargs -0 -n 1 -P "$NPROC" sh -c 'eval "$0" || { echo "FAILED: $0" >&2; exit 255; }'; then
+if ! tr '\n' '\0' < "$JOBS" | xargs -0 -n 1 -P "$NPROC" sh -c 'eval "$0" || { echo "FAILED: $0" >&2; exit 1; }'; then
   echo "engine compile failed" >&2
   exit 1
 fi
