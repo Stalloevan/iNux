@@ -37,7 +37,7 @@ jobs:
 
       - name: Build engine for Linux
         if: steps.engine-cache.outputs.cache-hit != 'true'
-        run: sh Engine/build-engine.sh host build/engine-host
+        run: bash Tools/ci/run-logged.sh "Linux engine build" sh Engine/build-engine.sh host build/engine-host
 
       - name: Build test AppImage
         run: sh Engine/test/make-test-appimage.sh Hello.AppImage

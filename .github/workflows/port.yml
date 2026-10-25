@@ -59,7 +59,7 @@ jobs:
 
       - name: Build engine for Linux
         if: steps.engine-cache.outputs.cache-hit != 'true'
-        run: sh Engine/build-engine.sh host build/engine-host
+        run: bash Tools/ci/run-logged.sh "Linux engine build" sh Engine/build-engine.sh host build/engine-host
 
       - name: Smoke test under the engine
         run: python3 Tools/port/smoke.py Generated build/engine-host/bin/inux-run --timeout 120

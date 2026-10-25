@@ -61,7 +61,7 @@ jobs:
 
       - name: Build engine for iOS
         if: steps.engine-cache.outputs.cache-hit != 'true'
-        run: sh Engine/build-engine.sh ios build/engine-ios
+        run: bash Tools/ci/run-logged.sh "iOS engine build" sh Engine/build-engine.sh ios build/engine-ios
 
       - name: Install engine into template
         run: |
@@ -81,12 +81,12 @@ jobs:
       - name: Build
         working-directory: Template
         run: >
+          bash ../Tools/ci/run-logged.sh "Xcode build"
           xcodebuild -project PortedApp.xcodeproj -scheme PortedApp -configuration Release
           -sdk iphoneos -derivedDataPath build
           -skipPackagePluginValidation -skipMacroValidation
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
-          build | tail -n 200; exit ${PIPESTATUS[0]}
-        shell: bash
+          build
 
       - name: Package IPA
         env:
