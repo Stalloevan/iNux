@@ -1,0 +1,8 @@
+*.xcodeproj
+build/
+.DS_Store
+Template/Support/
+Template/Generated/*
+!Template/Generated/.gitkeep
+Support/iNux-Info.plist
+__pycache__/

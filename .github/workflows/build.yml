@@ -1,0 +1,40 @@
+name: Build iNux
+
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: ver
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - run: brew install xcodegen && xcodegen generate
+
+      - run: >
+          xcodebuild -project iNux.xcodeproj -scheme iNux -configuration Release
+          -sdk iphoneos -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          build
+
+      - run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/iNux.app Payload/
+          zip -qr "iNux-v${{ steps.ver.outputs.version }}.ipa" Payload
+
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "v${{ steps.ver.outputs.version }}"
+          "iNux-v${{ steps.ver.outputs.version }}.ipa"
+          --title "iNux v${{ steps.ver.outputs.version }}"
+          --target "${{ github.sha }}"
