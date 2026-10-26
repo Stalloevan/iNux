@@ -68,21 +68,26 @@ class Toolchain:
             cflags = "-I%s/include" % self.host_prefix
             ldflags = "-L%s/lib" % self.host_prefix
             prefixes = [self.host_prefix]
+            qt_bin = os.path.join(self.qt_host(), "bin") if self.qt else None
         else:
             cflags = "%s -fPIC -I%s/include" % (self.arch_flags, self.prefix)
             ldflags = "%s -L%s/lib" % (self.arch_flags, self.prefix)
             prefixes = [self.prefix, self.host_prefix]
+            qt_bin = os.path.join(self.qt, "bin") if self.qt else None
+        qt_root = self.qt_host() if host else self.qt
         e.update(
             CC=self.cc, CXX=self.cxx,
             CFLAGS=cflags + " " + e.get("CFLAGS", ""),
             CXXFLAGS=cflags + " " + e.get("CXXFLAGS", ""),
             LDFLAGS=ldflags + " " + e.get("LDFLAGS", ""),
             PKG_CONFIG_PATH=":".join("%s/lib/pkgconfig" % p for p in prefixes),
-            CMAKE_PREFIX_PATH=":".join(prefixes + ([self.qt] if self.qt and not host else [])),
+            CMAKE_PREFIX_PATH=":".join(prefixes + ([qt_root] if qt_root else [])),
         )
+        # Host build tools must not find the iOS Qt via PATH; only the
+        # matching-side Qt bin is exposed.
         path = [os.path.join(self.host_prefix, "bin"), os.path.join(self.prefix, "bin")]
-        if self.qt:
-            path.append(os.path.join(self.qt, "bin"))
+        if qt_bin:
+            path.append(qt_bin)
         e["PATH"] = ":".join(path) + ":" + e["PATH"]
         return e
 

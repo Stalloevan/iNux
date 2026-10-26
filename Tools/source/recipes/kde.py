@@ -78,7 +78,10 @@ def ecm_module(tag):
     return {
         "name": "extra-cmake-modules",
         "buildsystem": "cmake",
-        "config-opts": ["-DBUILD_TESTING=OFF"],
+        # ECM only ships CMake modules; it needs neither Qt nor Sphinx here.
+        "config-opts": ["-DBUILD_TESTING=OFF",
+                        "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON",
+                        "-DCMAKE_DISABLE_FIND_PACKAGE_Sphinx=ON"],
         # ECM is a host build tool (CMake modules only); build for the host.
         "build-options": {"host": True},
         "host": True,
