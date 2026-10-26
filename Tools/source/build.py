@@ -333,6 +333,8 @@ def build_module(module, tc, srcroot, cache, jobs, plan_dir, app_settings):
     env = tc.env(host=host)
     if not host:
         fix_static_package_configs(tc.prefix, tc.qt)
+    if module.get("app"):
+        normalize_executable_link_signature(primary)
     opts = [o.replace("@HOST_PREFIX@", tc.host_prefix).replace("@PREFIX@", tc.prefix)
             for o in module.get("config-opts", [])]
     log("=== building %s (%s%s)" % (name, bs, ", host tool" if host else ""))
@@ -390,6 +392,43 @@ def build_module(module, tc, srcroot, cache, jobs, plan_dir, app_settings):
 
     if module.get("ecm") or name.endswith("extra-cmake-modules"):
         allow_ios_in_ecm(tc.host_prefix if host else tc.prefix)
+
+
+LINK_KEYWORDS = ("PUBLIC", "PRIVATE", "INTERFACE", "LINK_PRIVATE", "LINK_PUBLIC", "LINK_INTERFACE_LIBRARIES")
+
+
+def normalize_executable_link_signature(srcdir):
+    """CMake forbids mixing target_link_libraries(t a b) with
+    target_link_libraries(t PRIVATE c) on one target. Qt's finalization and
+    the iNux app adapter use the keyword form, so plain calls on the app's
+    executables are rewritten to PRIVATE, which is what plain means for an
+    executable. Library targets are left alone."""
+    executables = set()
+    lists = []
+    for root, _dirs, files in os.walk(srcdir):
+        for f in files:
+            if f == "CMakeLists.txt" or f.endswith(".cmake"):
+                p = os.path.join(root, f)
+                lists.append(p)
+                for m in re.finditer(r"add_executable\(\s*([A-Za-z0-9_.+-]+)", open(p, errors="replace").read()):
+                    executables.add(m.group(1))
+    if not executables:
+        return
+
+    def fix(m):
+        target, rest = m.group(2), m.group(3)
+        first = rest.split()[0] if rest.split() else ""
+        if target not in executables or first.upper() in LINK_KEYWORDS:
+            return m.group(0)
+        return "%s%s PRIVATE%s" % (m.group(1), target, rest)
+
+    pattern = re.compile(r"(target_link_libraries\(\s*)([A-Za-z0-9_.+-]+)((?:\s|\))[^)]*)", re.S)
+    for p in lists:
+        text = open(p, errors="replace").read()
+        new = pattern.sub(fix, text)
+        if new != text:
+            open(p, "w").write(new)
+            log("link signature normalized in", os.path.relpath(p, srcdir))
 
 
 TARGET_DEF_RE = re.compile(r"add_library\(\s*([A-Za-z0-9_]+::[A-Za-z0-9_]+)\s")
