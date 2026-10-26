@@ -238,10 +238,12 @@ def extract(path, dest, strip=1):
 
 
 def apply_patch(path, srcdir, strip=1, options=()):
+    # Not "git apply": the sources are unpacked inside this repository's
+    # checkout, where git resolves paths against the outer repo and skips
+    # every file without an error. patch(1) works on any directory and
+    # fails loudly.
     log("applying patch", os.path.basename(path))
-    if run(["git", "apply", "--unidiff-zero", "-p%d" % strip] + list(options) + [path], cwd=srcdir, check=False) == 0:
-        return
-    if run(["patch", "-p%d" % strip, "-l", "-f", "-i", path], cwd=srcdir, check=False) != 0:
+    if run(["patch", "-p%d" % strip, "-N", "-i", path], cwd=srcdir, check=False) != 0:
         raise SystemExit("patch %s did not apply in %s" % (path, srcdir))
 
 
