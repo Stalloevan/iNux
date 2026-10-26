@@ -1,0 +1,26 @@
+diff --git a/src/lib/CMakeLists.txt b/src/lib/CMakeLists.txt
+index 16d738a..61a7e0b 100644
+--- a/src/lib/CMakeLists.txt
++++ b/src/lib/CMakeLists.txt
+@@ -86,7 +86,9 @@ if(UNIX)
+     target_sources(KF6CoreAddons PRIVATE util/ksafestringerror.cpp)
+ endif()
+ 
+-if (UNIX AND NOT IOS)
++# iNux: also on iOS. The headers are installed there too, and these are
++# plain POSIX code; process use goes through the iNux QProcess stand-in.
++if (UNIX)
+     target_sources(KF6CoreAddons PRIVATE
+         text/kmacroexpander_unix.cpp
+         util/klistopenfilesjob_unix.cpp
+@@ -196,7 +198,9 @@ elseif(HAVE_QTDBUS)
+     target_sources(KF6CoreAddons PRIVATE util/ksystemclockskewnotifierengine_dbus.cpp)
+ endif()
+ 
+-if(NOT IOS)
++# iNux: KProcess/KSandbox are built on iOS as well (headers are installed);
++# starting a program fails at runtime, as QProcess does there.
++if(TRUE)
+     target_sources(KF6CoreAddons PRIVATE
+         io/kprocess.cpp
+         util/ksandbox.cpp

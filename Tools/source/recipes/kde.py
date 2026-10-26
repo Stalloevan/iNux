@@ -57,7 +57,11 @@ COMMON_KDE = [
 
 # Per-framework iOS options.
 FRAMEWORK_OPTS = {
-    "karchive": ["-DWITH_BZIP2=OFF", "-DWITH_LIBLZMA=OFF", "-DWITH_LIBZSTD=OFF", "-DWITH_OPENSSL=OFF"],
+    # WITH_*=OFF only makes these optional; also stop the search so nothing
+    # outside the iOS SDK/prefix is used. bzip2 and zlib come from the SDK.
+    "karchive": ["-DWITH_BZIP2=OFF", "-DWITH_LIBLZMA=OFF", "-DWITH_LIBZSTD=OFF", "-DWITH_OPENSSL=OFF",
+                 "-DCMAKE_DISABLE_FIND_PACKAGE_LibLZMA=ON", "-DCMAKE_DISABLE_FIND_PACKAGE_LibZstd=ON",
+                 "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=ON"],
     "kconfig": ["-DKCONFIG_USE_QML=OFF"],
     "kcoreaddons": ["-DKCOREADDONS_USE_QML=OFF", "-DENABLE_INOTIFY=OFF", "-DENABLE_PROCSTAT=OFF"],
     "kiconthemes": ["-DUSE_BreezeIcons=OFF", "-DKICONTHEMES_USE_QTQUICK=OFF"],
@@ -73,6 +77,7 @@ FRAMEWORK_PATCHES = {
     "kcrash": ["patches/kcrash-ios-noop.patch"],
     "kdbusaddons": ["patches/kdbusaddons-ios-nodbus.patch"],
     "kpackage": ["patches/kpackage-static-build.patch"],
+    "kcoreaddons": ["patches/kcoreaddons-ios-complete.patch"],
 }
 
 # Fixes for static builds, needed on the host side too.

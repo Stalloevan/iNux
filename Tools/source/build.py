@@ -38,6 +38,10 @@ SDK = "iphoneos"
 DEPLOYMENT = "16.4"  # C++20 <format> needs std::to_chars(float), iOS 16.3+
 HERE = os.path.dirname(os.path.abspath(__file__))
 STAMP_VERSION = "3"
+# Bumped when iOS build settings in this file change in ways that make
+# earlier iOS builds wrong (e.g. host libraries leaking in); host tools stay
+# cached.
+IOS_ENV_VERSION = "2"
 
 
 def log(*a):
@@ -287,6 +291,8 @@ def module_hash(module):
                 for f in sorted(files):
                     data += f + open(os.path.join(root, f), "rb").read().decode("latin-1")
     data += open(os.path.join(HERE, "ios.toolchain.cmake")).read()
+    if not is_host(module):
+        data += "ios-env-" + IOS_ENV_VERSION
     if module.get("app"):
         for f in ("InuxIOSApp.cmake", "inux_ios_bootstrap.cpp"):
             data += open(os.path.join(HERE, "ios", f)).read()
