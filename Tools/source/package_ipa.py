@@ -60,7 +60,7 @@ def ensure_plist(app, name, bundle_id):
     data.setdefault("CFBundlePackageType", "APPL")
     data.setdefault("LSRequiresIPhoneOS", True)
     data.setdefault("UIDeviceFamily", [1, 2])
-    data.setdefault("MinimumOSVersion", "16.4")
+    data.setdefault("MinimumOSVersion", "17.0")
     data.setdefault("UILaunchScreen", {})
     data.setdefault("UISupportedInterfaceOrientations",
                     ["UIInterfaceOrientationPortrait",

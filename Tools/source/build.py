@@ -35,7 +35,7 @@ import urllib.request
 import zipfile
 
 SDK = "iphoneos"
-DEPLOYMENT = "16.4"  # C++20 <format> needs std::to_chars(float), iOS 16.3+
+DEPLOYMENT = "17.0"  # Qt 6.10 for iOS is built for iOS 17
 HERE = os.path.dirname(os.path.abspath(__file__))
 STAMP_VERSION = "3"
 # Bumped when iOS build settings in this file change in ways that make

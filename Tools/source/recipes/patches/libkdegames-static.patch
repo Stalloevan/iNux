@@ -1,3 +1,17 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 13c3485..f320db4 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -18,7 +18,8 @@ add_subdirectory(private)
+ configure_file(libkdegames_capabilities.h.in ${CMAKE_CURRENT_BINARY_DIR}/libkdegames_capabilities.h)
+ configure_file(highscore/config-highscore.h.in ${CMAKE_CURRENT_BINARY_DIR}/highscore/config-highscore.h )
+ 
+-add_library(KDEGames SHARED)
++# iNux: follow BUILD_SHARED_LIBS (static on iOS, where loose dylibs cannot load).
++add_library(KDEGames)
+ 
+ set_target_properties(KDEGames PROPERTIES
+     OUTPUT_NAME ${KDEGAMES_OUTPUT_NAME}
 diff --git a/src/private/CMakeLists.txt b/src/private/CMakeLists.txt
 index 5e270e1..d851a3a 100644
 --- a/src/private/CMakeLists.txt
