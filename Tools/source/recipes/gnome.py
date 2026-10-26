@@ -62,6 +62,7 @@ LIBADWAITA = "1.10.0"
 def stack_modules():
     mods = []
 
+
     # libintl stand-in (shared with the KDE recipe's compat library).
     mods.append({
         "name": "inux-intl",
@@ -173,6 +174,20 @@ def stack_modules():
     ])
     adw["inux-patches"] = ["patches/libadwaita-ios.patch"]
     mods.append(adw)
+
+    # Build-time stand-ins on the Mac. Icon caches only speed up lookups;
+    # GTK reads the theme directories without one.
+    mods.append({
+        "name": "inux-host-shims",
+        "buildsystem": "simple",
+        "host": True,
+        "sources": [],
+        "build-commands": [
+            "mkdir -p \"$FLATPAK_DEST/bin\"",
+            "printf '#!/bin/sh\\n# iNux: icon caches are optional; skipped.\\nexit 0\\n' > \"$FLATPAK_DEST/bin/gtk4-update-icon-cache\"",
+            "chmod +x \"$FLATPAK_DEST/bin/gtk4-update-icon-cache\"",
+        ],
+    })
 
     # Data only: symbolic icons GTK and libadwaita apps use, and the
     # default GNOME fonts (Adwaita Sans / Mono).

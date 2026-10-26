@@ -546,8 +546,9 @@ def write_meson_cross(tc, path, extra_link=()):
     compile_flags = "-I%s/include -w" % tc.prefix
     link_flags = ["-L%s/lib" % tc.prefix] + COMMON_LINK_ARGS + list(extra_link)
     tools = []
+    host_path = tc.env(host=True)["PATH"]
     for prog in MESON_HOST_TOOLS:
-        found = shutil.which(prog)
+        found = shutil.which(prog, path=host_path)
         if found:
             tools.append("%s = '%s'" % (prog, found))
     vala = shutil.which("valac")
