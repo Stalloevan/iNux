@@ -72,6 +72,9 @@ def stack_modules():
             "$CC $CFLAGS -c libintl.c -o libintl.o",
             "ar rcs \"$FLATPAK_DEST/lib/libintl.a\" libintl.o",
             "cp libintl.h \"$FLATPAK_DEST/include/libintl.h\"",
+            # zlib comes with the iOS SDK; describe it to pkg-config so
+            # Meson does not go looking (and find the macOS SDK's).
+            "mkdir -p \"$FLATPAK_DEST/lib/pkgconfig\" && printf 'Name: zlib\\nDescription: zlib from the iOS SDK\\nVersion: 1.2.12\\nLibs: -lz\\nCflags:\\n' > \"$FLATPAK_DEST/lib/pkgconfig/zlib.pc\"",
         ],
     })
 

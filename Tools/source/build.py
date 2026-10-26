@@ -583,6 +583,17 @@ cpu_family = 'aarch64'
 cpu = 'arm64'
 endian = 'little'
 
+# For dependencies Meson looks up through CMake: search the iOS SDK and the
+# prefix, not the macOS SDK.
+[cmake]
+CMAKE_SYSTEM_NAME = 'iOS'
+CMAKE_OSX_SYSROOT = '%s'
+CMAKE_OSX_ARCHITECTURES = 'arm64'
+CMAKE_FIND_ROOT_PATH = '%s'
+CMAKE_FIND_ROOT_PATH_MODE_LIBRARY = 'ONLY'
+CMAKE_FIND_ROOT_PATH_MODE_INCLUDE = 'ONLY'
+CMAKE_FIND_ROOT_PATH_MODE_PACKAGE = 'ONLY'
+
 [properties]
 needs_exe_wrapper = true
 pkg_config_libdir = [%s]
@@ -606,6 +617,7 @@ objcpp_link_args = [%s]
 """ % (prog(tc.cc), prog(tc.cxx), prog(tc.cc), prog(tc.cxx),
        xcrun("--find", "ar"), xcrun("--find", "strip"), lst([pkgconf, "--static"]),
        shutil.which("cmake") or "cmake", "\n".join(tools),
+       tc.sysroot, tc.prefix,
        lst(pcdirs),
        lst(compile_flags), lst(compile_flags), lst(compile_flags), lst(compile_flags),
        lst(link_flags), lst(link_flags), lst(link_flags), lst(link_flags))
