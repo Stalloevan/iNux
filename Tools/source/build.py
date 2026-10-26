@@ -268,6 +268,31 @@ def build_module(module, tc, srcroot, cache, jobs):
     else:
         raise SystemExit("unknown build system %r for %s" % (bs, name))
 
+    if name == "extra-cmake-modules":
+        allow_ios_in_ecm(tc.host_prefix)
+
+
+def allow_ios_in_ecm(host_prefix):
+    """KDE's platform check rejects iOS. ECM is our own host build, so add
+    iOS to the supported list in the module it installed, letting the KF6
+    frameworks configure. (They still have to compile, which is the real
+    test.)"""
+    import glob as _glob
+    hits = _glob.glob(os.path.join(host_prefix, "share", "ECM", "kde-modules",
+                                   "KDEMetaInfoPlatformCheck.cmake"))
+    for path in hits:
+        text = open(path).read()
+        # Downgrade the unsupported-platform abort to a status message. The
+        # message text is stable across ECM versions; matching it avoids
+        # touching any other FATAL_ERROR in the file.
+        new = text.replace('message(FATAL_ERROR "Your current platform',
+                           'message(STATUS "Your current platform')
+        if new != text:
+            open(path, "w").write(new)
+            log("patched ECM platform check to allow iOS:", path)
+        else:
+            log("ECM platform check text not found (ECM layout changed?):", path)
+
 
 def write_meson_cross(tc, path):
     content = """[binaries]
