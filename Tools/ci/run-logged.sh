@@ -5,7 +5,7 @@
 #   Tools/ci/run-logged.sh TITLE COMMAND [ARGS...]
 TITLE=$1
 shift
-LOG=$(mktemp)
+LOG=${INUX_LOG_FILE:-$(mktemp)}
 set -o pipefail
 "$@" 2>&1 | tee "$LOG"
 rc=${PIPESTATUS[0]}
@@ -14,6 +14,12 @@ if [ "$rc" -ne 0 ]; then
 import re, sys
 title, path = sys.argv[1], sys.argv[2]
 lines = open(path, errors="replace").read().splitlines()
+# Prefer the last failing build step in full (link errors span many lines).
+last_failed = max((i for i, l in enumerate(lines) if l.startswith("FAILED:") or "CMake Error" in l), default=None)
+if last_failed is not None:
+    block = [l[:300] for l in lines[last_failed:last_failed + 90] if not l.startswith("[")]
+    msg = "\n".join(block)[:30000].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print("::error title=%s (last failure)::%s" % (title, msg))
 pat = re.compile(r"(error|FAILED|fatal|Undefined symbol|undefined reference|No such file|cannot find|\*\* BUILD FAILED)", re.I)
 picked, seen = [], set()
 for i, line in enumerate(lines):
@@ -31,5 +37,5 @@ msg = msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 print("::error title=%s::%s" % (title, msg))
 EOF
 fi
-rm -f "$LOG"
+[ -z "$INUX_LOG_FILE" ] && rm -f "$LOG"
 exit "$rc"

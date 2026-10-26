@@ -102,12 +102,24 @@ jobs:
             inux-stage-v1-qt${{ env.QT_VERSION }}-kf${{ inputs.kf_version }}-
 
       - name: Cross-compile for iOS
+        env:
+          INUX_LOG_FILE: ${{ github.workspace }}/build-${{ inputs.job_id }}.log
         run: >
           bash Tools/ci/run-logged.sh "Source build"
           python3 Tools/source/build.py --plan plan/plan-ios.json --prefix stage --host-prefix stage-host
           --qt "$QT_IOS" --prepend recipe.json --jobs 3
           --bundle-id "com.inux.ported.j${{ inputs.job_id }}"
           --display-name "${APP_ID##*.}"
+
+      - name: Upload build log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ci-logs >/dev/null 2>&1 || \
+            gh release create ci-logs --prerelease --title "CI logs" --notes "Full logs of failed source builds."
+          gzip -kf "build-${{ inputs.job_id }}.log"
+          gh release upload ci-logs "build-${{ inputs.job_id }}.log.gz" --clobber
 
       - name: Save build stages
         if: always()

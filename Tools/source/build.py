@@ -128,6 +128,9 @@ class Toolchain:
             "-DBUILD_SHARED_LIBS=OFF",
             "-DBUILD_TESTING=OFF",
             "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+            # Never pick up macOS libraries (Homebrew, the runner's Python
+            # toolcache) for an iOS build.
+            "-DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew;/usr/local;/Users/runner/hostedtoolcache",
         ]
         if self.qt:
             args.append("-DQT_HOST_PATH=" + self.qt_host())
