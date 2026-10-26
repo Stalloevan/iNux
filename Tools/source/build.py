@@ -589,7 +589,10 @@ def main():
     for m in modules:
         stamp = stamp_path(tc, m)
         digest = module_hash(m)
-        if not rebuilding and os.path.exists(stamp) and open(stamp).read().strip() == digest:
+        # The app itself is always rebuilt: its build tree (the .app bundle the
+        # packager picks up) is not part of the cached prefix.
+        if (not m.get("app") and not rebuilding and os.path.exists(stamp)
+                and open(stamp).read().strip() == digest):
             log("=== %s: up to date (cached)" % m["name"])
             continue
         rebuilding = True
