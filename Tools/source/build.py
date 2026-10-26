@@ -551,9 +551,15 @@ def write_meson_cross(tc, path, extra_link=()):
         found = shutil.which(prog, path=host_path)
         if found:
             tools.append("%s = '%s'" % (prog, found))
-    vala = shutil.which("valac")
+    vala = shutil.which("valac", path=host_path)
+    vala_args = []
     if vala:
         tools.append("vala = '%s'" % vala)
+        # Bindings for libraries Vala does not ship (libadwaita) come from
+        # Homebrew; the C side still compiles against the iOS prefix.
+        d = os.path.join(os.path.dirname(os.path.dirname(vala)), "share", "vala", "vapi")
+        if os.path.isdir(d):
+            vala_args += ["--vapidir", d]
     pkgconf = shutil.which("pkg-config") or "pkg-config"
     pcdirs = ["%s/lib/pkgconfig" % tc.prefix, "%s/share/pkgconfig" % tc.prefix]
     # The target flags are part of the compiler command, not just c_args:
@@ -615,13 +621,14 @@ c_link_args = [%s]
 cpp_link_args = [%s]
 objc_link_args = [%s]
 objcpp_link_args = [%s]
+vala_args = [%s]
 """ % (prog(tc.cc), prog(tc.cxx), prog(tc.cc), prog(tc.cxx),
        xcrun("--find", "ar"), xcrun("--find", "strip"), lst([pkgconf, "--static"]),
        shutil.which("cmake") or "cmake", "\n".join(tools),
        tc.sysroot, tc.prefix,
        lst(pcdirs),
        lst(compile_flags), lst(compile_flags), lst(compile_flags), lst(compile_flags),
-       lst(link_flags), lst(link_flags), lst(link_flags), lst(link_flags))
+       lst(link_flags), lst(link_flags), lst(link_flags), lst(link_flags), lst(vala_args))
     open(path, "w").write(content)
     return path
 

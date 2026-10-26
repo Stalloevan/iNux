@@ -245,6 +245,7 @@ GTK_SHARE_EXCLUDE = SHARE_EXCLUDE | {
     "search-providers", "help", "appdata",
 }
 GTK_SHARE_EXCLUDE_PATHS = {
+    os.path.join("gtk-4.0", "valgrind"), os.path.join("gtk-4.0", "gtk4builder.rng"),
     os.path.join("glib-2.0", "codegen"), os.path.join("glib-2.0", "gdb"),
     os.path.join("glib-2.0", "valgrind"), os.path.join("icons", "Adwaita", "cursors"),
     os.path.join("gettext"),
@@ -264,6 +265,9 @@ def copy_share_gtk(app, share_dir):
         for n in names:
             path = os.path.normpath(os.path.join(rel, n))
             if (rel == "." and n in GTK_SHARE_EXCLUDE) or path in GTK_SHARE_EXCLUDE_PATHS or n.startswith("."):
+                skipped.append(n)
+            # Emoji names for the emoji chooser: English only (the UI is).
+            elif rel == os.path.join("gtk-4.0", "emoji") and not n.startswith("en"):
                 skipped.append(n)
         return skipped
 

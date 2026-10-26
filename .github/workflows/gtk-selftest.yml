@@ -39,7 +39,7 @@ jobs:
       - name: Install build tools
         run: |
           python3 -m pip install --upgrade pyyaml pillow packaging
-          brew install ninja meson pkgconf gettext glib gperf librsvg
+          brew install ninja meson pkgconf gettext glib gperf librsvg vala libadwaita blueprint-compiler itstool desktop-file-utils
           echo "INUX_HOST_PREFIX_PATH=$(brew --prefix gettext)" >> "$GITHUB_ENV"
 
       - name: Plan
