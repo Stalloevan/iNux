@@ -71,7 +71,10 @@ function(_inux_link_prefix_qml_plugins app)
         endif()
         string(REGEX REPLACE "^(optional[ \t]+)?plugin[ \t]+([^ \t]+).*" "\\2" plugin "${plugin_line}")
         string(REGEX REPLACE "^classname[ \t]+([^ \t]+).*" "\\1" classname "${class_line}")
-        file(GLOB archives "${dir}/lib${plugin}.a" "${dir}/lib${plugin}*.a")
+        # ECM installs static plugin archives to lib/ (it only names library
+        # and runtime destinations), so look there as well as next to qmldir.
+        file(GLOB archives "${dir}/lib${plugin}.a" "${dir}/lib${plugin}*.a"
+             "${INUX_COMPAT_PREFIX}/lib/lib${plugin}.a")
         if(NOT archives)
             continue()
         endif()

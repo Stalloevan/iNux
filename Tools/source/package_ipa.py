@@ -62,6 +62,9 @@ def ensure_plist(app, name, bundle_id):
     data.setdefault("UIDeviceFamily", [1, 2])
     data.setdefault("MinimumOSVersion", "17.0")
     data.setdefault("UILaunchScreen", {})
+    data.setdefault("CFBundleSupportedPlatforms", ["iPhoneOS"])
+    data.setdefault("DTPlatformName", "iphoneos")
+    data.setdefault("UIRequiredDeviceCapabilities", ["arm64"])
     data.setdefault("UISupportedInterfaceOrientations",
                     ["UIInterfaceOrientationPortrait",
                      "UIInterfaceOrientationLandscapeLeft",
@@ -129,8 +132,10 @@ def copy_qml(app, qml_dir):
     dest = os.path.join(app, "qml")
     for root, _dirs, files in os.walk(qml_dir):
         rel = os.path.relpath(root, qml_dir)
+        if "objects-Release" in root.split(os.sep) or "objects-Debug" in root.split(os.sep):
+            continue
         for f in files:
-            if f.endswith((".a", ".cmake", ".prl")):
+            if f.endswith((".a", ".o", ".cmake", ".prl")):
                 continue
             src = os.path.join(root, f)
             out = os.path.join(dest, rel, f)
@@ -141,6 +146,22 @@ def copy_qml(app, qml_dir):
             else:
                 shutil.copyfile(src, out)
     print("bundled QML modules from", qml_dir)
+
+
+def find_app_icon(share_dir, names):
+    """The app's own icon from the installed hicolor theme, largest PNG."""
+    best, best_size = None, 0
+    base = os.path.join(share_dir or "", "icons", "hicolor")
+    if not os.path.isdir(base):
+        return None
+    for root, _dirs, files in os.walk(base):
+        for f in files:
+            stem = f.rsplit(".", 1)[0]
+            if f.endswith(".png") and any(stem == n or stem.endswith("-" + n) or stem.endswith("." + n) for n in names):
+                size = os.path.getsize(os.path.join(root, f))
+                if size > best_size:
+                    best, best_size = os.path.join(root, f), size
+    return best
 
 
 def make_ipa(app, out):
@@ -172,7 +193,13 @@ def main():
     name = a.name or os.path.splitext(os.path.basename(app))[0]
     print("packaging", app, flush=True)
     ensure_plist(app, name, a.bundle_id)
-    set_icon(app, a.icon)
+    icon = a.icon
+    if not icon:
+        exe = os.path.splitext(os.path.basename(app))[0]
+        icon = find_app_icon(a.share_dir, [exe, name, a.bundle_id.rsplit(".", 1)[-1]])
+        if icon:
+            print("using icon", icon)
+    set_icon(app, icon)
     copy_share(app, a.share_dir)
     copy_qml(app, a.qml_dir)
     ipa = make_ipa(app, a.out)
