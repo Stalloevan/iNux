@@ -138,6 +138,14 @@ class Toolchain:
         ]
         if self.qt:
             args.append("-DQT_HOST_PATH=" + self.qt_host())
+        # Host programs iOS builds need, given by path because host prefixes
+        # are excluded from searches (KF6I18n requires gettext's msgfmt).
+        for var, prog in (("GETTEXT_MSGFMT_EXECUTABLE", "msgfmt"), ("GETTEXT_MSGMERGE_EXECUTABLE", "msgmerge")):
+            for p in self.host_extra:
+                exe = os.path.join(p, "bin", prog)
+                if os.path.exists(exe):
+                    args.append("-D%s=%s" % (var, exe))
+                    break
         if module.get("kde"):
             # Searched before Qt's headers (which come in as -isystem /
             # -iframework), so <QProcess> resolves to the iNux stand-in.
