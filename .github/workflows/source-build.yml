@@ -44,7 +44,7 @@ jobs:
 
       - name: Install build tools
         run: |
-          python3 -m pip install --upgrade aqtinstall pyyaml
+          python3 -m pip install --upgrade aqtinstall pyyaml pillow
           brew install ninja meson pkg-config gettext
           echo "INUX_HOST_PREFIX_PATH=$(brew --prefix gettext)" >> "$GITHUB_ENV"
 

@@ -53,8 +53,10 @@ def ensure_plist(app, name, bundle_id):
     exe = data.get("CFBundleExecutable") or os.path.splitext(os.path.basename(app))[0]
     data.setdefault("CFBundleExecutable", exe)
     data.setdefault("CFBundleIdentifier", bundle_id)
-    data.setdefault("CFBundleName", name)
-    data.setdefault("CFBundleDisplayName", name)
+    # Qt's generated Info.plist can carry unexpanded placeholders such as
+    # "{PRODUCT_NAME}"; always write the real display name.
+    for key in ("CFBundleName", "CFBundleDisplayName"):
+        data[key] = name
     data.setdefault("CFBundleShortVersionString", "1.0")
     data.setdefault("CFBundleVersion", "1")
     data.setdefault("CFBundlePackageType", "APPL")
@@ -74,22 +76,96 @@ def ensure_plist(app, name, bundle_id):
     return exe
 
 
+ICON_SIZES = {  # file name -> pixels
+    "AppIcon60x60@2x.png": 120,
+    "AppIcon60x60@3x.png": 180,
+    "AppIcon76x76@2x~ipad.png": 152,
+    "AppIcon83.5x83.5@2x~ipad.png": 167,
+}
+
+
+def square_opaque_icon(icon):
+    """The icon as an opaque, edge-to-edge square (PIL image) or None.
+
+    iOS draws transparent pixels black and applies its own rounded mask, so
+    a transparent margin shows up as a black frame around a shrunken icon.
+    Crop to the artwork's bounds, fill the square with it, and flatten what
+    little transparency is left (rounded corners) onto the artwork's edge
+    colour."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    im = Image.open(icon).convert("RGBA")
+    alpha = im.getchannel("A")
+    box = alpha.point(lambda v: 255 if v > 24 else 0).getbbox()
+    if box:
+        im = im.crop(box)
+    w, h = im.size
+    side = max(w, h)
+    # Edge colour: average of the opaque pixels along the border.
+    px = im.load()
+    samples = []
+    for x in range(w):
+        samples += [px[x, 0], px[x, h - 1]]
+    for y in range(h):
+        samples += [px[0, y], px[w - 1, y]]
+    samples = [c for c in samples if c[3] > 200] or [(128, 128, 128, 255)]
+    bg = tuple(sum(c[i] for c in samples) // len(samples) for i in range(3)) + (255,)
+    canvas = Image.new("RGBA", (side, side), bg)
+    canvas.alpha_composite(im, ((side - w) // 2, (side - h) // 2))
+    # Opaque corners: paint the rounded corner pixels with the edge colour,
+    # which alpha_composite above already did by compositing over bg.
+    return canvas.convert("RGB")
+
+
 def set_icon(app, icon):
-    """Installs a single 1024px icon; iOS accepts one CFBundleIcons entry."""
+    """Installs the app icon in the sizes iPhone and iPad ask for."""
     if not icon or not os.path.exists(icon):
         return
-    dest = os.path.join(app, "AppIcon60x60@2x.png")
-    try:
-        subprocess.run(["sips", "-s", "format", "png", "-z", "120", "120", icon, "--out", dest],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        shutil.copyfile(icon, dest)
+    art = square_opaque_icon(icon)
+    files = []
+    for fname, px in ICON_SIZES.items():
+        dest = os.path.join(app, fname)
+        if art is not None:
+            from PIL import Image
+            art.resize((px, px), Image.LANCZOS).save(dest, "PNG")
+        elif fname.startswith("AppIcon60x60@2x"):
+            try:
+                subprocess.run(["sips", "-s", "format", "png", "-z", str(px), str(px), icon, "--out", dest],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                shutil.copyfile(icon, dest)
+        else:
+            continue
+        files.append(fname)
     p = os.path.join(app, "Info.plist")
     with open(p, "rb") as f:
         data = plistlib.load(f)
-    data["CFBundleIcons"] = {"CFBundlePrimaryIcon": {"CFBundleIconFiles": ["AppIcon60x60"]}}
+    data["CFBundleIcons"] = {"CFBundlePrimaryIcon": {
+        "CFBundleIconFiles": ["AppIcon60x60", "AppIcon76x76", "AppIcon83.5x83.5"]}}
+    data["CFBundleIcons~ipad"] = data["CFBundleIcons"]
     with open(p, "wb") as f:
         plistlib.dump(data, f)
+
+
+def metainfo_name(share_dir, app_id):
+    """The app's display name from its AppStream metainfo (untranslated)."""
+    import xml.etree.ElementTree as ET
+    base = os.path.join(share_dir or "", "metainfo")
+    if not os.path.isdir(base):
+        return None
+    for f in sorted(os.listdir(base)):
+        if not f.endswith(".xml") or app_id.lower() not in f.lower():
+            continue
+        try:
+            root = ET.parse(os.path.join(base, f)).getroot()
+        except Exception:
+            continue
+        for n in root.findall("name"):
+            if not n.attrib and n.text and n.text.strip():
+                return n.text.strip()
+    return None
 
 
 # Installed data that has no use inside an iOS app bundle.
@@ -215,6 +291,9 @@ def main():
 
     app = find_app(a.search)
     name = a.name or os.path.splitext(os.path.basename(app))[0]
+    nice = metainfo_name(a.share_dir, name)
+    if nice:
+        name = nice
     print("packaging", app, flush=True)
     ensure_plist(app, name, a.bundle_id)
     icon = a.icon
