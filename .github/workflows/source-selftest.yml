@@ -35,7 +35,7 @@ jobs:
           # --autodesktop also installs the matching macOS host Qt (moc etc.).
           bash Tools/ci/run-logged.sh "aqt install" \
             python3 -m aqt install-qt mac ios "$QT_VERSION" -O "$HOME/Qt" \
-              --autodesktop -m qtdeclarative qtsvg
+              --autodesktop
           echo "QT_IOS=$HOME/Qt/$QT_VERSION/ios" >> "$GITHUB_ENV"
           echo "QT_HOST=$HOME/Qt/$QT_VERSION/macos" >> "$GITHUB_ENV"
 
