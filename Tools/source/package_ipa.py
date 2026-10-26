@@ -130,7 +130,20 @@ def copy_share(app, share_dir, app_names=()):
     print("bundled %.1f MB of app data" % (total / 1e6))
 
 
-def copy_qml(app, qml_dir):
+def qml_classnames(search):
+    """uri -> plugin class actually linked (written by InuxIOSApp.cmake)."""
+    names = {}
+    for root, _dirs, files in os.walk(search):
+        if "inux-qml-classnames.txt" in files:
+            for line in open(os.path.join(root, "inux-qml-classnames.txt")):
+                parts = line.split()
+                if len(parts) == 2:
+                    names[parts[0]] = parts[1]
+            break
+    return names
+
+
+def copy_qml(app, qml_dir, classnames=None):
     """Bundles QML modules installed in the prefix (lib/qml). Static builds
     of Qt 6 modules write 'prefer :/qt/qml/...' into qmldir, pointing at
     resources that only exist when the module is linked through its CMake
@@ -150,6 +163,9 @@ def copy_qml(app, qml_dir):
             os.makedirs(os.path.dirname(out), exist_ok=True)
             if f == "qmldir":
                 lines = [l for l in open(src).read().splitlines() if not l.startswith("prefer ")]
+                uri = rel.replace(os.sep, ".")
+                if classnames and uri in classnames:
+                    lines = [("classname " + classnames[uri]) if l.startswith("classname ") else l for l in lines]
                 open(out, "w").write("\n".join(lines) + "\n")
             else:
                 shutil.copyfile(src, out)
@@ -210,7 +226,7 @@ def main():
     set_icon(app, icon)
     exe = os.path.splitext(os.path.basename(app))[0]
     copy_share(app, a.share_dir, app_names={exe, name})
-    copy_qml(app, a.qml_dir)
+    copy_qml(app, a.qml_dir, qml_classnames(a.search))
     ipa = make_ipa(app, a.out)
     size = os.path.getsize(ipa)
     print("wrote %s (%.1f MB)" % (ipa, size / 1e6))
