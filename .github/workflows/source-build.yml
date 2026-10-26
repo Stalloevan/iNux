@@ -135,7 +135,7 @@ jobs:
           ICON=""
           [ -f plan/files/icon.png ] && ICON="--icon plan/files/icon.png"
           SEARCH=$(cat stage/.inux-app-build-dir 2>/dev/null || echo src-build)
-          python3 Tools/source/package_ipa.py --search "$SEARCH" \
+          bash Tools/ci/run-logged.sh "Package IPA" python3 Tools/source/package_ipa.py --search "$SEARCH" \
             --out "Ported-${{ inputs.job_id }}.ipa" \
             --name "${APP_ID##*.}" \
             --bundle-id "com.inux.ported.j${{ inputs.job_id }}" \
