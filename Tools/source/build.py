@@ -113,6 +113,9 @@ class Toolchain:
                 "-DCMAKE_BUILD_TYPE=Release",
                 "-DBUILD_TESTING=OFF",
                 "-DBUILD_SHARED_LIBS=OFF",
+                # Older projects declare cmake_minimum_required < 3.5, which
+                # CMake 4 rejects unless told the minimum policy to assume.
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
             ]
         prefixes = [self.prefix] + ([self.qt] if self.qt else [])
         args = [
@@ -124,6 +127,7 @@ class Toolchain:
             "-DCMAKE_FIND_ROOT_PATH=" + ";".join(prefixes),
             "-DBUILD_SHARED_LIBS=OFF",
             "-DBUILD_TESTING=OFF",
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         ]
         if self.qt:
             args.append("-DQT_HOST_PATH=" + self.qt_host())
