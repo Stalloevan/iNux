@@ -143,11 +143,11 @@ def stack_modules():
         "-Ddocumentation=false", "-Dintrospection=disabled", "-Dman=false", "-Dtests=false",
         "-Dinstalled_tests=false", "-Dgio_sniffing=false", "-Dthumbnailer=disabled",
     ]))
-    mods.append(meson("graphene", "https://github.com/ebassi/graphene/releases/download/1.10.8/graphene-1.10.8.tar.xz", [
+    mods.append(meson_git("graphene", "https://github.com/ebassi/graphene.git", "1.10.8", [
         "-Dtests=false", "-Dinstalled_tests=false", "-Dintrospection=disabled", "-Dgobject_types=true",
         "-Dgtk_doc=false",
     ]))
-    mods.append(meson("libepoxy", "https://github.com/anholt/libepoxy/releases/download/1.5.10/libepoxy-1.5.10.tar.xz", [
+    mods.append(meson_git("libepoxy", "https://github.com/anholt/libepoxy.git", "1.5.10", [
         "-Ddocs=false", "-Dglx=no", "-Degl=no", "-Dx11=false", "-Dtests=false",
     ]))
 
