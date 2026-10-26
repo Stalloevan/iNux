@@ -66,6 +66,7 @@ activate (GtkApplication *app)
   GtkWidget *dropdown = gtk_drop_down_new_from_strings (choices);
   GtkWidget *switch_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
   GtkWidget *sw = gtk_switch_new ();
+  GtkWidget *switch_label = gtk_label_new ("A switch");
   GtkWidget *list = gtk_list_box_new ();
   GtkWidget *scroller = gtk_scrolled_window_new ();
   GSimpleAction *about = g_simple_action_new ("about", NULL);
@@ -92,9 +93,9 @@ activate (GtkApplication *app)
   g_signal_connect (entry, "changed", G_CALLBACK (on_entry_changed), echo);
   g_signal_connect (dialog_button, "clicked", G_CALLBACK (on_dialog), window);
 
-  gtk_box_append (GTK_BOX (switch_row), gtk_label_new ("A switch"));
-  gtk_widget_set_hexpand (gtk_box_get_first_child (GTK_BOX (switch_row)), TRUE);
-  gtk_widget_set_halign (gtk_box_get_first_child (GTK_BOX (switch_row)), GTK_ALIGN_START);
+  gtk_widget_set_hexpand (switch_label, TRUE);
+  gtk_widget_set_halign (switch_label, GTK_ALIGN_START);
+  gtk_box_append (GTK_BOX (switch_row), switch_label);
   gtk_box_append (GTK_BOX (switch_row), sw);
 
   for (int i = 1; i <= 60; i++)
