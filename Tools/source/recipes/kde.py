@@ -51,6 +51,8 @@ COMMON_KDE = [
     "-DWITH_X11=OFF",
     "-DWITH_WAYLAND=OFF",
     "-DKDE_INSTALL_USE_QT_SYS_PATHS=OFF",
+    # KDE's own switch for platforms not in a framework's metainfo.yaml.
+    "-DKF_IGNORE_PLATFORM_CHECK=ON",
 ]
 
 # Per-framework iOS options.
@@ -185,8 +187,8 @@ def third_party_modules(packages):
 
 
 def framework_modules(order, kf_tag):
-    mods = [{"name": "inux-tool-entry", "buildsystem": "cmake-ninja", "config-opts": [],
-             "sources": [{"type": "dir", "path": os.path.join(SOURCE, "compat-toolentry")}]}]
+    mods = [{"name": "inux-compat-overrides", "buildsystem": "cmake-ninja", "config-opts": [],
+             "sources": [{"type": "dir", "path": os.path.join(SOURCE, "compat-overrides")}]}]
     for name in order:
         if name in IOS_SKIP:
             continue

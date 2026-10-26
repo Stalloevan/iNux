@@ -132,7 +132,9 @@ class Toolchain:
         if self.qt:
             args.append("-DQT_HOST_PATH=" + self.qt_host())
         if module.get("kde"):
-            compat_header = os.path.join(self.prefix, "include", "inux-compat", "inux_qprocess.h")
+            # Searched before Qt's headers (which come in as -isystem /
+            # -iframework), so <QProcess> resolves to the iNux stand-in.
+            override_dir = os.path.join(self.prefix, "include", "inux-compat-override")
             compat_libs = [os.path.join(self.prefix, "lib", n) for n in ("libInuxCompat.a", "libintl.a")]
             if not module.get("app"):
                 # Tools inside library builds need an entry point (see
@@ -140,7 +142,7 @@ class Toolchain:
                 compat_libs.append(os.path.join(self.prefix, "lib", "libInuxToolEntry.a"))
             args += [
                 "-DKF6_HOST_TOOLING=" + os.path.join(self.host_prefix, "lib", "cmake"),
-                "-DCMAKE_CXX_FLAGS=%s -include %s" % (self.arch_flags, compat_header),
+                "-DCMAKE_CXX_FLAGS=%s -I%s" % (self.arch_flags, override_dir),
                 "-DCMAKE_CXX_STANDARD_LIBRARIES=" + " ".join(compat_libs),
                 # KDE installs app bundles to /Applications/KDE by default.
                 "-DKDE_INSTALL_BUNDLEDIR=" + os.path.join(self.prefix, "Applications"),
