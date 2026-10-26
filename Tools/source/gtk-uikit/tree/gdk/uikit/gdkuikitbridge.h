@@ -45,6 +45,8 @@ void gdk_uikit_post_layout    (int x, int y, int width, int height,
                                double scale, gboolean dark);
 void gdk_uikit_post_dismiss_popups (void);
 void gdk_uikit_post_close_front (void);
+/* Another app changed the system pasteboard. */
+void gdk_uikit_post_pasteboard_changed (gboolean has_text);
 
 /* ------------------------------------ GTK thread -> main thread (UI) -- */
 
@@ -69,5 +71,6 @@ guint32  gdk_uikit_ui_time_ms       (void);
 void     gdk_uikit_ui_open_uri      (const char *uri);
 void     gdk_uikit_ui_set_clipboard_text (const char *utf8);
 char    *gdk_uikit_ui_get_clipboard_text (void);
+gboolean gdk_uikit_ui_pasteboard_has_text (void);
 
 G_END_DECLS

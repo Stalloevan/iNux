@@ -20,6 +20,9 @@ enum { VIEW_TOPLEVEL = 0, VIEW_POPUP = 1, VIEW_AUTOHIDE_POPUP = 2 };
 static UIView *root_view = nil;
 static UIView *key_input = nil;
 static CGFloat keyboard_overlap = 0;
+/* Pasteboard change count after our own last write, so the change
+ * notification for it is not mistaken for another app's copy. */
+static NSInteger own_pasteboard_change = -1;
 /* Autohide popups currently shown, so a touch elsewhere can dismiss them. */
 static NSHashTable<UIView *> *open_popups = nil;
 
@@ -481,6 +484,25 @@ is_pointer (UITouch *touch)
                                            selector:@selector(keyboardWillHide:)
                                                name:UIKeyboardWillHideNotification
                                              object:nil];
+  [[NSNotificationCenter defaultCenter] addObserver:self
+                                           selector:@selector(pasteboardMayHaveChanged:)
+                                               name:UIPasteboardChangedNotification
+                                             object:nil];
+  [[NSNotificationCenter defaultCenter] addObserver:self
+                                           selector:@selector(pasteboardMayHaveChanged:)
+                                               name:UIApplicationDidBecomeActiveNotification
+                                             object:nil];
+}
+
+- (void)pasteboardMayHaveChanged:(NSNotification *)note
+{
+  UIPasteboard *pb = UIPasteboard.generalPasteboard;
+
+  if (pb.changeCount == own_pasteboard_change)
+    return;
+  own_pasteboard_change = pb.changeCount;
+  /* hasStrings does not trigger the paste permission prompt. */
+  gdk_uikit_post_pasteboard_changed (pb.hasStrings);
 }
 
 - (BOOL)canBecomeFirstResponder { return YES; }
@@ -724,7 +746,25 @@ gdk_uikit_ui_set_clipboard_text (const char *utf8)
 
   on_main (^{
     UIPasteboard.generalPasteboard.string = text;
+    own_pasteboard_change = UIPasteboard.generalPasteboard.changeCount;
   });
+}
+
+gboolean
+gdk_uikit_ui_pasteboard_has_text (void)
+{
+  __block gboolean has = FALSE;
+  dispatch_block_t check = ^{
+    has = UIPasteboard.generalPasteboard.hasStrings;
+    own_pasteboard_change = UIPasteboard.generalPasteboard.changeCount;
+  };
+
+  if ([NSThread isMainThread])
+    check ();
+  else
+    dispatch_sync (dispatch_get_main_queue (), check);
+
+  return has;
 }
 
 char *

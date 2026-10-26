@@ -11,6 +11,7 @@
 
 #include "gdkuikit-private.h"
 
+#include "gdkclipboardprivate.h"
 #include "gdkeventsprivate.h"
 #include "gdkkeysyms.h"
 #include "gdkprivate.h"
@@ -378,6 +379,137 @@ gdk_uikit_keymap_init (GdkUIKitKeymap *self)
 {
 }
 
+/* ========================================================== clipboard == */
+
+/* Text goes to and from the system pasteboard (UIPasteboard); other
+ * formats stay inside the app. Copying in GTK writes the text to the
+ * pasteboard; when another app puts text there, GTK sees it as a remote
+ * clipboard offering text, which is read only when the user pastes. */
+
+#define TEXT_MIME "text/plain;charset=utf-8"
+
+typedef struct { GdkClipboard parent_instance; } GdkUIKitClipboard;
+typedef struct { GdkClipboardClass parent_class; } GdkUIKitClipboardClass;
+
+G_DEFINE_TYPE (GdkUIKitClipboard, gdk_uikit_clipboard, GDK_TYPE_CLIPBOARD)
+
+static void
+clipboard_export_done (GObject      *source,
+                       GAsyncResult *result,
+                       gpointer      data)
+{
+  GMemoryOutputStream *stream = data;
+
+  if (gdk_clipboard_write_finish (GDK_CLIPBOARD (source), result, NULL))
+    {
+      char *text = g_strndup (g_memory_output_stream_get_data (stream),
+                              g_memory_output_stream_get_data_size (stream));
+      gdk_uikit_ui_set_clipboard_text (text);
+      g_free (text);
+    }
+
+  g_object_unref (stream);
+}
+
+static gboolean
+gdk_uikit_clipboard_claim (GdkClipboard       *clipboard,
+                           GdkContentFormats  *formats,
+                           gboolean            local,
+                           GdkContentProvider *content)
+{
+  gboolean ret = GDK_CLIPBOARD_CLASS (gdk_uikit_clipboard_parent_class)->claim (clipboard, formats, local, content);
+
+  if (local && content &&
+      gdk_content_formats_contain_mime_type (gdk_clipboard_get_formats (clipboard), TEXT_MIME))
+    {
+      GOutputStream *stream = g_memory_output_stream_new_resizable ();
+
+      gdk_clipboard_write_async (clipboard, TEXT_MIME, stream, G_PRIORITY_DEFAULT,
+                                 NULL, clipboard_export_done, stream);
+    }
+
+  return ret;
+}
+
+static void
+gdk_uikit_clipboard_read_async (GdkClipboard        *clipboard,
+                                GdkContentFormats   *formats,
+                                int                  io_priority,
+                                GCancellable        *cancellable,
+                                GAsyncReadyCallback  callback,
+                                gpointer             user_data)
+{
+  GTask *task = g_task_new (clipboard, cancellable, callback, user_data);
+  const char *mime = NULL;
+  char *text;
+
+  g_task_set_source_tag (task, gdk_uikit_clipboard_read_async);
+
+  if (gdk_content_formats_contain_mime_type (formats, TEXT_MIME))
+    mime = TEXT_MIME;
+  else if (gdk_content_formats_contain_mime_type (formats, "text/plain"))
+    mime = "text/plain";
+
+  text = mime ? gdk_uikit_ui_get_clipboard_text () : NULL;
+  if (text == NULL)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                               "The pasteboard has no text");
+    }
+  else
+    {
+      g_task_set_task_data (task, (gpointer) mime, NULL);
+      g_task_return_pointer (task,
+                             g_memory_input_stream_new_from_data (text, -1, g_free),
+                             g_object_unref);
+    }
+  g_object_unref (task);
+}
+
+static GInputStream *
+gdk_uikit_clipboard_read_finish (GdkClipboard  *clipboard,
+                                 GAsyncResult  *result,
+                                 const char   **out_mime_type,
+                                 GError       **error)
+{
+  if (out_mime_type)
+    *out_mime_type = g_task_get_task_data (G_TASK (result));
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+static void
+gdk_uikit_clipboard_class_init (GdkUIKitClipboardClass *klass)
+{
+  GdkClipboardClass *clipboard_class = GDK_CLIPBOARD_CLASS (klass);
+
+  clipboard_class->claim = gdk_uikit_clipboard_claim;
+  clipboard_class->read_async = gdk_uikit_clipboard_read_async;
+  clipboard_class->read_finish = gdk_uikit_clipboard_read_finish;
+}
+
+static void
+gdk_uikit_clipboard_init (GdkUIKitClipboard *self)
+{
+}
+
+static void
+clipboard_offer_pasteboard (GdkDisplay *display,
+                            gboolean    has_text)
+{
+  GdkClipboard *clipboard = gdk_display_get_clipboard (display);
+  GdkContentFormatsBuilder *builder = gdk_content_formats_builder_new ();
+  GdkContentFormats *formats;
+
+  if (has_text)
+    {
+      gdk_content_formats_builder_add_mime_type (builder, TEXT_MIME);
+      gdk_content_formats_builder_add_mime_type (builder, "text/plain");
+    }
+  formats = gdk_content_formats_builder_free_to_formats (builder);
+  gdk_clipboard_claim_remote (clipboard, formats);
+  gdk_content_formats_unref (formats);
+}
+
 /* ======================================================= event source == */
 
 typedef struct
@@ -710,6 +842,10 @@ _gdk_uikit_display_open (const char *display_name)
   self->keymap->display = display;
 
   self->event_source = event_source_new (display);
+
+  display->clipboard = g_object_new (gdk_uikit_clipboard_get_type (), "display", display, NULL);
+  if (gdk_uikit_ui_pasteboard_has_text ())
+    clipboard_offer_pasteboard (display, TRUE);
 
   gdk_display_emit_opened (display);
 
@@ -1247,4 +1383,23 @@ void
 gdk_uikit_post_close_front (void)
 {
   post (handle_close_front, g_new0 (char, 1));
+}
+
+static gboolean
+handle_pasteboard (gpointer data)
+{
+  gboolean has_text = *(gboolean *) data;
+
+  if (the_display)
+    clipboard_offer_pasteboard (GDK_DISPLAY (the_display), has_text);
+  return G_SOURCE_REMOVE;
+}
+
+void
+gdk_uikit_post_pasteboard_changed (gboolean has_text)
+{
+  gboolean *data = g_new (gboolean, 1);
+
+  *data = has_text;
+  post (handle_pasteboard, data);
 }
