@@ -12,6 +12,8 @@ on:
       - Tools/source/gtk-uikit/**
       - Tools/source/gtkapp/**
       - Tools/source/recipes/gnome.py
+      - Tools/source/build.py
+      - Tools/source/package_ipa.py
       - Tools/source/recipes/patches/libadwaita-*.patch
       - .github/workflows/gtk-selftest.yml
   workflow_dispatch:
