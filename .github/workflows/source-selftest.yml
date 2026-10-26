@@ -31,9 +31,11 @@ jobs:
       - name: Install Qt (host + iOS) and tools
         run: |
           python3 -m pip install --upgrade aqtinstall
-          python3 -m aqt install-qt mac desktop "$QT_VERSION" -O "$HOME/Qt" -m qtbase qtdeclarative qtsvg
-          python3 -m aqt install-qt mac ios "$QT_VERSION" -O "$HOME/Qt" -m qtbase qtdeclarative qtsvg
           brew install ninja
+          # --autodesktop also installs the matching macOS host Qt (moc etc.).
+          bash Tools/ci/run-logged.sh "aqt install" \
+            python3 -m aqt install-qt mac ios "$QT_VERSION" -O "$HOME/Qt" \
+              --autodesktop -m qtdeclarative qtsvg
           echo "QT_IOS=$HOME/Qt/$QT_VERSION/ios" >> "$GITHUB_ENV"
           echo "QT_HOST=$HOME/Qt/$QT_VERSION/macos" >> "$GITHUB_ENV"
 

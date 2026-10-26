@@ -48,8 +48,9 @@ jobs:
 
       - name: Install Qt (host + iOS)
         run: |
-          python3 -m aqt install-qt mac desktop "$QT_VERSION" -O "$HOME/Qt" -m qtbase qtdeclarative qtsvg qtimageformats
-          python3 -m aqt install-qt mac ios "$QT_VERSION" -O "$HOME/Qt" -m qtbase qtdeclarative qtsvg qtimageformats
+          bash Tools/ci/run-logged.sh "aqt install" \
+            python3 -m aqt install-qt mac ios "$QT_VERSION" -O "$HOME/Qt" \
+              --autodesktop -m qtdeclarative qtsvg qtimageformats
           echo "QT_IOS=$HOME/Qt/$QT_VERSION/ios" >> "$GITHUB_ENV"
           echo "QT_HOST=$HOME/Qt/$QT_VERSION/macos" >> "$GITHUB_ENV"
 
