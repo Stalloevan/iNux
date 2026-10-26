@@ -70,6 +70,12 @@ FRAMEWORK_PATCHES = {
     "kconfig": ["patches/kconfig-ios-qprocess.patch"],
     "kcrash": ["patches/kcrash-ios-noop.patch"],
     "kdbusaddons": ["patches/kdbusaddons-ios-nodbus.patch"],
+    "kpackage": ["patches/kpackage-static-build.patch"],
+}
+
+# Fixes for static builds, needed on the host side too.
+HOST_PATCHES = {
+    "kpackage": ["patches/kpackage-static-build.patch"],
 }
 
 HOST_OPTS = {
@@ -146,6 +152,8 @@ def host_modules(order, kf_tag):
                                ["-DBUILD_QCH=OFF", "-DBUILD_PYTHON_BINDINGS=OFF", "-DUSE_DBUS=OFF",
                                 "-DBUILD_DESIGNERPLUGIN=OFF"] + HOST_OPTS.get(name, []),
                                host=True))
+        if name in HOST_PATCHES:
+            mods[-1]["inux-patches"] = HOST_PATCHES[name]
     return mods
 
 
