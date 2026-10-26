@@ -369,7 +369,7 @@ def build_module(module, tc, srcroot, cache, jobs, plan_dir, app_settings):
         setup = ["meson", "setup", builddir, primary,
                  "--prefix", install_prefix, "--libdir", "lib",
                  "--default-library", "static", "--buildtype", "release",
-                 "-Dprefer_static=true", "-Db_ndebug=if-release"]
+                 "-Db_ndebug=if-release"]
         if not host:
             # Cross builds: the compilers, flags and the iOS pkg-config path
             # come from the cross file. CC/CFLAGS/PKG_CONFIG_* in the
@@ -541,8 +541,10 @@ def write_meson_cross(tc, path, extra_link=()):
     def lst(flags):
         items = flags.split() if isinstance(flags, str) else list(flags)
         return ", ".join("'%s'" % f.replace("'", "\\'") for f in items)
-    compile_flags = tc.arch_flags + " -I%s/include" % tc.prefix
-    link_flags = tc.arch_flags.split() + ["-L%s/lib" % tc.prefix] + COMMON_LINK_ARGS + list(extra_link)
+    # -w: third-party code floods the log with warnings (GLib alone emits
+    # hundreds of thousands of lines); errors are what matter here.
+    compile_flags = "-I%s/include -w" % tc.prefix
+    link_flags = ["-L%s/lib" % tc.prefix] + COMMON_LINK_ARGS + list(extra_link)
     tools = []
     for prog in MESON_HOST_TOOLS:
         found = shutil.which(prog)
@@ -553,14 +555,23 @@ def write_meson_cross(tc, path, extra_link=()):
         tools.append("vala = '%s'" % vala)
     pkgconf = shutil.which("pkg-config") or "pkg-config"
     pcdirs = ["%s/lib/pkgconfig" % tc.prefix, "%s/share/pkgconfig" % tc.prefix]
+    # The target flags are part of the compiler command, not just c_args:
+    # Meson asks the compiler for its library search path without c_args,
+    # and would otherwise get the macOS SDK's (and link macOS libraries).
+    target = tc.arch_flags.split()
+
+    def prog(path, *extra):
+        return "[%s]" % lst([path] + target + list(extra))
     content = """[binaries]
-c = '%s'
-cpp = '%s'
-objc = '%s'
-objcpp = '%s'
+c = %s
+cpp = %s
+objc = %s
+objcpp = %s
 ar = '%s'
 strip = '%s'
-pkg-config = '%s'
+# --static: every library is static, so links need the private
+# dependencies pkg-config lists too.
+pkg-config = [%s]
 cmake = '%s'
 %s
 
@@ -592,7 +603,8 @@ c_link_args = [%s]
 cpp_link_args = [%s]
 objc_link_args = [%s]
 objcpp_link_args = [%s]
-""" % (tc.cc, tc.cxx, tc.cc, tc.cxx, xcrun("--find", "ar"), xcrun("--find", "strip"), pkgconf,
+""" % (prog(tc.cc), prog(tc.cxx), prog(tc.cc), prog(tc.cxx),
+       xcrun("--find", "ar"), xcrun("--find", "strip"), lst([pkgconf, "--static"]),
        shutil.which("cmake") or "cmake", "\n".join(tools),
        lst(pcdirs),
        lst(compile_flags), lst(compile_flags), lst(compile_flags), lst(compile_flags),
