@@ -87,7 +87,8 @@ the owner and repository name and a GitHub token (classic: `repo` +
   GStreamer, WebKit, ...), are not built yet.
   The **GTK self-test** workflow builds a small GTK app for devices; **GTK
   simulator test** runs one in the iOS Simulator and publishes a
-  screenshot.
+  screenshot (the self-test starts, lays out and draws there; touch input
+  has not been exercised by CI, and nothing has run on a device yet).
 - Everything is unsigned; sign the IPA with your own tool before installing.
 
 ## The emulator (kept, switched off)
