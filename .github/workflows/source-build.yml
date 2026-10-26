@@ -1,10 +1,12 @@
 name: Source build
 
-run-name: Build ${{ inputs.app_id || inputs.job_id }} from source
+run-name: Build ${{ inputs.app_id || inputs.job_id }} from source (${{ inputs.job_id }})
 
-# Resolves an app to its Flathub build plan, cross-compiles its runtime
-# dependencies (KDE Frameworks for Qt/KDE apps) and the app itself for iOS,
-# and publishes an unsigned IPA.
+# Resolves an app to its Flathub build plan, works out which KDE Frameworks
+# it needs, cross-compiles those (plus host build tools, iNux compat
+# libraries and third-party deps) and the app for iOS, and publishes an
+# unsigned IPA. Finished modules are cached between runs, so a retry after
+# a failure resumes at the module that failed.
 on:
   workflow_dispatch:
     inputs:
@@ -12,28 +14,27 @@ on:
         description: Job id from the iNux app
         required: true
       app_id:
-        description: Flathub app id (e.g. org.kde.kcalc), or leave blank to use an uploaded file
+        description: Flathub app id (e.g. org.kde.kbreakout), or blank to use an uploaded file
         required: false
       asset_name:
         description: Uploaded source file attached to release src-<job_id>, if no app_id
         required: false
       kf_version:
-        description: KDE Frameworks version tag
+        description: KDE Frameworks version
         required: false
-        default: "6.11.0"
-      frameworks:
-        description: Comma-separated KF frameworks to build (blank = default set)
+        default: "6.31.0"
+      qt_series:
+        description: Qt series for iOS (newest patch release is used)
         required: false
+        default: "6.10"
 
 permissions:
   contents: write
 
-env:
-  QT_VERSION: 6.8.3
-
 jobs:
   build:
     runs-on: macos-latest
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -44,15 +45,19 @@ jobs:
       - name: Install build tools
         run: |
           python3 -m pip install --upgrade aqtinstall pyyaml
-          brew install ninja meson pkg-config
+          brew install ninja meson pkg-config gettext
+          echo "INUX_HOST_PREFIX_PATH=$(brew --prefix gettext)" >> "$GITHUB_ENV"
 
       - name: Install Qt (host + iOS)
         run: |
+          QT=$(python3 -m aqt list-qt mac ios --spec "${{ inputs.qt_series }}" --latest-version)
+          echo "Using Qt $QT"
           bash Tools/ci/run-logged.sh "aqt install" \
-            python3 -m aqt install-qt mac ios "$QT_VERSION" -O "$HOME/Qt" \
-              --autodesktop
-          echo "QT_IOS=$HOME/Qt/$QT_VERSION/ios" >> "$GITHUB_ENV"
-          echo "QT_HOST=$HOME/Qt/$QT_VERSION/macos" >> "$GITHUB_ENV"
+            python3 -m aqt install-qt mac ios "$QT" -O "$HOME/Qt" --autodesktop
+          echo "QT_VERSION=$QT" >> "$GITHUB_ENV"
+          echo "QT_IOS=$HOME/Qt/$QT/ios" >> "$GITHUB_ENV"
+          echo "QT_HOST=$HOME/Qt/$QT/macos" >> "$GITHUB_ENV"
+          ls "$HOME/Qt/$QT/ios/lib" | grep -E "Quick|Qml|Svg|Widgets|Xml|Test" | head -20 || true
 
       - name: Download uploaded source (if any)
         if: inputs.app_id == ''
@@ -69,43 +74,67 @@ jobs:
           else
             python3 Tools/source/resolve.py --file "work/${{ inputs.asset_name }}" --out plan
           fi
-          cat plan/plan.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('toolkit:',d['toolkit'],'runtime:',d['runtime'])"
-
-      - name: Prepare runtime recipe (KDE)
-        id: recipe
-        run: |
           TOOLKIT=$(python3 -c "import json;print(json.load(open('plan/plan.json'))['toolkit'])")
-          RUNTIME=$(python3 -c "import json;print(json.load(open('plan/plan.json')).get('runtime') or '')")
-          if echo "$TOOLKIT" | grep -q qt && echo "$RUNTIME" | grep -q org.kde; then
-            python3 Tools/source/recipes/kde.py --kf-version "${{ inputs.kf_version }}" \
-              ${{ inputs.frameworks && format('--frameworks {0}', inputs.frameworks) || '' }} > recipe.json
-            echo "prepend=--prepend recipe.json" >> "$GITHUB_OUTPUT"
-          else
-            echo "No KDE runtime recipe for toolkit=$TOOLKIT runtime=$RUNTIME; building app modules only."
-            echo "prepend=" >> "$GITHUB_OUTPUT"
+          APP=$(python3 -c "import json;d=json.load(open('plan/plan.json'));print(d.get('app_id') or '')")
+          echo "TOOLKIT=$TOOLKIT" >> "$GITHUB_ENV"
+          echo "APP_ID=$APP" >> "$GITHUB_ENV"
+          if [ "$TOOLKIT" = "gtk" ]; then
+            echo "::error title=Unsupported::GTK/GNOME apps are not supported yet (GTK has no iOS backend)."
+            exit 1
           fi
+
+      - name: Work out dependencies
+        run: |
+          python3 Tools/source/build.py --plan plan/plan.json --prefix stage --fetch-only --src-root src-plan
+          python3 Tools/source/recipes/kf_graph.py --kf-version "${{ inputs.kf_version }}" \
+            --cache kf-src --json graph.json src-plan/*
+          python3 Tools/source/recipes/kde.py --graph graph.json --plan plan/plan.json \
+            --kf-version "${{ inputs.kf_version }}" --recipe-out recipe.json --plan-out plan/plan-ios.json
+
+      - name: Restore cached build stages
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            stage
+            stage-host
+          key: inux-stage-v1-qt${{ env.QT_VERSION }}-kf${{ inputs.kf_version }}-${{ github.run_id }}
+          restore-keys: |
+            inux-stage-v1-qt${{ env.QT_VERSION }}-kf${{ inputs.kf_version }}-
 
       - name: Cross-compile for iOS
         run: >
           bash Tools/ci/run-logged.sh "Source build"
-          python3 Tools/source/build.py --plan plan/plan.json --prefix stage
-          --qt "$QT_IOS" ${{ steps.recipe.outputs.prepend }} --jobs 3
+          python3 Tools/source/build.py --plan plan/plan-ios.json --prefix stage --host-prefix stage-host
+          --qt "$QT_IOS" --prepend recipe.json --jobs 3
+          --bundle-id "com.inux.ported.j${{ inputs.job_id }}"
+          --display-name "${APP_ID##*.}"
+
+      - name: Save build stages
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            stage
+            stage-host
+          key: inux-stage-v1-qt${{ env.QT_VERSION }}-kf${{ inputs.kf_version }}-${{ github.run_id }}
 
       - name: Package IPA
         run: |
           ICON=""
           [ -f plan/files/icon.png ] && ICON="--icon plan/files/icon.png"
-          python3 Tools/source/package_ipa.py --search . \
+          SEARCH=$(cat stage/.inux-app-build-dir 2>/dev/null || echo src-build)
+          python3 Tools/source/package_ipa.py --search "$SEARCH" \
             --out "Ported-${{ inputs.job_id }}.ipa" \
-            --name "${{ inputs.app_id || inputs.job_id }}" \
-            --bundle-id "com.inux.ported.j${{ inputs.job_id }}" $ICON
+            --name "${APP_ID##*.}" \
+            --bundle-id "com.inux.ported.j${{ inputs.job_id }}" \
+            --share-dir stage/share $ICON
 
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "app-${{ inputs.job_id }}" "Ported-${{ inputs.job_id }}.ipa" \
-            --title "${{ inputs.app_id || inputs.job_id }}" --prerelease \
+            --title "${APP_ID:-${{ inputs.job_id }}}" --prerelease \
             --notes "Compiled from source for iOS by iNux. Unsigned; sign before installing." \
             --target "${{ github.sha }}"
           gh release delete "src-${{ inputs.job_id }}" --cleanup-tag --yes || true

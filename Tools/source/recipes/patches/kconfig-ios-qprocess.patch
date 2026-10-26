@@ -1,12 +1,33 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ab5ddc8..e4c48cf 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -6,8 +6,11 @@ if(KCONFIG_USE_QML)
+     add_subdirectory(qml)
+ endif()
+ add_subdirectory(kconfig_compiler)
+-add_subdirectory(kconf_update)
+-add_subdirectory(kreadconfig)
++# iOS: no separate helper programs (no process spawning in the sandbox).
++if(NOT IOS)
++    add_subdirectory(kconf_update)
++    add_subdirectory(kreadconfig)
++endif()
+ 
+ ecm_qt_install_logging_categories(
+     EXPORT KCONFIG
+diff --git a/src/core/kconfig.cpp b/src/core/kconfig.cpp
+index 84f9d51..ba8e356 100644
 --- a/src/core/kconfig.cpp
 +++ b/src/core/kconfig.cpp
-@@ -539,1 +539,3 @@
--        QProcess::execute(QStringLiteral(KCONF_UPDATE_INSTALL_LOCATION), QStringList{QStringLiteral("--check"), updateFile});
+@@ -26,7 +26,10 @@
+ #include <QFile>
+ #include <QLocale>
+ #include <QMutexLocker>
++#include <QtCore/qtcore-config.h>
 +#if QT_CONFIG(process)
-+        QProcess::execute(QStringLiteral(KCONF_UPDATE_INSTALL_LOCATION), QStringList{QStringLiteral("--check"), updateFile});
+ #include <QProcess>
 +#endif
-@@ -962,1 +962,3 @@
--            QProcess::execute(cmdToExec, QStringList{QStringLiteral("--title"), QCoreApplication::applicationName(), QStringLiteral("--msgbox"), errorMsg});
-+#if QT_CONFIG(process)
-+            QProcess::execute(cmdToExec, QStringList{QStringLiteral("--title"), QCoreApplication::applicationName(), QStringLiteral("--msgbox"), errorMsg});
-+#endif
+ #include <QSet>
+ #include <QThreadStorage>
+ #include <QTimeZone>

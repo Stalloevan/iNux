@@ -89,6 +89,36 @@ def set_icon(app, icon):
         plistlib.dump(data, f)
 
 
+# Installed data that has no use inside an iOS app bundle.
+SHARE_EXCLUDE = {
+    "locale", "doc", "man", "info", "help", "qlogging-categories6", "ECM", "cmake",
+    "pkgconfig", "aclocal", "gettext", "applications", "metainfo", "dbus-1",
+    "kconf_update", "bash-completion", "zsh", "fish", "licenses", "kdevappwizard",
+}
+
+
+def copy_share(app, share_dir):
+    """Copies an install prefix's share/ into <App>.app/share, where the
+    iNux bootstrap links it into Application Support at launch."""
+    if not share_dir or not os.path.isdir(share_dir):
+        return
+    dest = os.path.join(app, "share")
+    os.makedirs(dest, exist_ok=True)
+    total = 0
+    for entry in sorted(os.listdir(share_dir)):
+        if entry in SHARE_EXCLUDE or entry.startswith("."):
+            continue
+        src = os.path.join(share_dir, entry)
+        target = os.path.join(dest, entry)
+        if os.path.isdir(src):
+            shutil.copytree(src, target, symlinks=False, dirs_exist_ok=True)
+        else:
+            shutil.copyfile(src, target)
+        total += bundle_size(target) if os.path.isdir(target) else os.path.getsize(target)
+        print("  bundled share/%s" % entry)
+    print("bundled %.1f MB of app data" % (total / 1e6))
+
+
 def make_ipa(app, out):
     out = os.path.abspath(out)
     if os.path.exists(out):
@@ -110,6 +140,7 @@ def main():
     ap.add_argument("--name", default="")
     ap.add_argument("--bundle-id", default="com.inux.ported.app")
     ap.add_argument("--icon", default="")
+    ap.add_argument("--share-dir", default="", help="install prefix share/ to bundle")
     a = ap.parse_args()
 
     app = find_app(a.search)
@@ -117,6 +148,7 @@ def main():
     print("packaging", app, flush=True)
     ensure_plist(app, name, a.bundle_id)
     set_icon(app, a.icon)
+    copy_share(app, a.share_dir)
     ipa = make_ipa(app, a.out)
     size = os.path.getsize(ipa)
     print("wrote %s (%.1f MB)" % (ipa, size / 1e6))

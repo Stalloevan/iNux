@@ -1,0 +1,109 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index fe2bc88..be0a394 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -11,6 +11,10 @@ set_target_properties(KF6Crash PROPERTIES
+     EXPORT_NAME Crash
+ )
+ 
++if(IOS)
++    # iNux: no crash-reporter process on iOS; keep the API as no-ops.
++    target_sources(KF6Crash PRIVATE kcrash_ios.cpp kcrash.h)
++else()
+ target_sources(KF6Crash PRIVATE
+     coreconfig.cpp
+     coreconfig_p.h
+@@ -22,6 +26,7 @@ target_sources(KF6Crash PRIVATE
+ )
+ 
+ kde_source_files_enable_exceptions(exception.cpp)
++endif()
+ 
+ configure_file(
+     ${CMAKE_CURRENT_SOURCE_DIR}/config-kcrash.h.cmake
+diff --git a/src/kcrash_ios.cpp b/src/kcrash_ios.cpp
+new file mode 100644
+index 0000000..615c743
+--- /dev/null
++++ b/src/kcrash_ios.cpp
+@@ -0,0 +1,80 @@
++/*
++    iNux: KCrash on iOS.
++
++    Desktop KCrash launches the DrKonqi crash reporter in a new process,
++    which iOS does not allow; iOS also records crashes itself. On iOS the
++    API is therefore kept but does nothing, so apps that call
++    KCrash::initialize() build and run unchanged.
++
++    SPDX-License-Identifier: LGPL-2.0-or-later
++*/
++#include "kcrash.h"
++
++#include <QHash>
++#include <QString>
++#include <QVariant>
++
++namespace KCrash
++{
++static HandlerType s_crashHandler = nullptr;
++static HandlerType s_emergencySaveFunction = nullptr;
++static bool s_drkonqiEnabled = false;
++
++void initialize()
++{
++}
++
++void defaultCrashHandler(int)
++{
++}
++
++void setCrashHandler(HandlerType handler)
++{
++    s_crashHandler = handler;
++}
++
++HandlerType crashHandler()
++{
++    return s_crashHandler;
++}
++
++void setEmergencySaveFunction(HandlerType saveFunction)
++{
++    s_emergencySaveFunction = saveFunction;
++}
++
++HandlerType emergencySaveFunction()
++{
++    return s_emergencySaveFunction;
++}
++
++void setFlags(KCrash::CrashFlags)
++{
++}
++
++void setDrKonqiEnabled(bool enabled)
++{
++    s_drkonqiEnabled = enabled;
++}
++
++bool isDrKonqiEnabled()
++{
++    return s_drkonqiEnabled;
++}
++
++void setErrorMessage(const QString &)
++{
++}
++
++void setErrorTags(const QHash<QString, QString> &)
++{
++}
++
++void setErrorExtraData(const QHash<QString, QString> &)
++{
++}
++
++void setGPUData(const QVariantHash &)
++{
++}
++} // namespace KCrash

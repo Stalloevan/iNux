@@ -1,0 +1,201 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1bea2cb..456c17a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -19,7 +19,12 @@ include(ECMQtDeclareLoggingCategory)
+ include(ECMDeprecationSettings)
+ 
+ set(REQUIRED_QT_VERSION 6.10.0)
+-find_package(Qt6DBus ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE)
++if(IOS)
++    # iNux: no D-Bus on iOS; KDBusService becomes a local no-op.
++    find_package(Qt6Core ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE)
++else()
++    find_package(Qt6DBus ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE)
++endif()
+ find_package(Qt6Gui ${REQUIRED_QT_VERSION} CONFIG) # qtx11extras_p.h
+ 
+ if (Qt6Gui_VERSION VERSION_GREATER_EQUAL "6.10.0")
+diff --git a/KF6DBusAddonsConfig.cmake.in b/KF6DBusAddonsConfig.cmake.in
+index 73829ed..421d4a3 100644
+--- a/KF6DBusAddonsConfig.cmake.in
++++ b/KF6DBusAddonsConfig.cmake.in
+@@ -1,7 +1,11 @@
+ @PACKAGE_INIT@
+ 
+ include(CMakeFindDependencyMacro)
+-find_dependency(Qt6DBus @REQUIRED_QT_VERSION@)
++if(IOS)
++    find_dependency(Qt6Core @REQUIRED_QT_VERSION@)
++else()
++    find_dependency(Qt6DBus @REQUIRED_QT_VERSION@)
++endif()
+ 
+ if(NOT @BUILD_SHARED_LIBS@)
+     # Qt5::DBus target will have been defined by the find_dependency() call above
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ef371f7..01aca32 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -1,4 +1,6 @@
+-add_subdirectory(tools/kquitapp)
++if(NOT IOS)
++    add_subdirectory(tools/kquitapp)
++endif()
+ 
+ add_library(KF6DBusAddons)
+ add_library(KF6::DBusAddons ALIAS KF6DBusAddons)
+@@ -13,6 +15,10 @@ set_target_properties(KF6DBusAddons PROPERTIES
+ 
+ ecm_create_qm_loader(KF6DBusAddons kdbusaddons6_qt)
+ 
++if(IOS)
++    # iNux: only KDBusService, implemented without D-Bus.
++    target_sources(KF6DBusAddons PRIVATE kdbusservice_ios.cpp kdbusservice.h)
++else()
+ target_sources(KF6DBusAddons PRIVATE
+     kdbusservice.cpp
+     kdbusservice.h
+@@ -21,6 +27,7 @@ target_sources(KF6DBusAddons PRIVATE
+     kupdatelaunchenvironmentjob.cpp
+     kupdatelaunchenvironmentjob.h
+ )
++endif()
+ 
+ ecm_qt_declare_logging_category(KF6DBusAddons
+     HEADER kdbusaddons_debug.h
+@@ -31,6 +38,7 @@ ecm_qt_declare_logging_category(KF6DBusAddons
+     EXPORT KDBUSADDONS
+ )
+ 
++if(NOT IOS)
+ set(libkdbusaddons_dbus_SRCS)
+ qt_add_dbus_interface(libkdbusaddons_dbus_SRCS org.freedesktop.Application.xml FreeDesktopApplpicationIface)
+ qt_add_dbus_interface(libkdbusaddons_dbus_SRCS org.kde.KDBusService.xml KDBusServiceIface)
+@@ -51,6 +59,7 @@ qt_add_dbus_adaptor(libkdbusaddons_dbus_SRCS
+ target_sources(KF6DBusAddons PRIVATE
+     ${libkdbusaddons_dbus_SRCS}
+ )
++endif()
+ 
+ ecm_generate_export_header(KF6DBusAddons
+     BASE_NAME KDBusAddons
+@@ -62,7 +71,11 @@ ecm_generate_export_header(KF6DBusAddons
+     EXCLUDE_DEPRECATED_BEFORE_AND_AT ${EXCLUDE_DEPRECATED_BEFORE_AND_AT}
+ )
+ 
+-target_link_libraries(KF6DBusAddons PUBLIC Qt6::DBus)
++if(IOS)
++    target_link_libraries(KF6DBusAddons PUBLIC Qt6::Core)
++else()
++    target_link_libraries(KF6DBusAddons PUBLIC Qt6::DBus)
++endif()
+ 
+ if(HAVE_X11)
+     target_link_libraries(KF6DBusAddons PRIVATE Qt6::GuiPrivate) # qtx11extras_p.h
+@@ -72,11 +85,14 @@ target_include_directories(KF6DBusAddons INTERFACE "$<INSTALL_INTERFACE:${KDE_IN
+ 
+ configure_file(config-kdbusaddons.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config-kdbusaddons.h )
+ 
++if(IOS)
++    set(_kdbusaddons_headers KDBusService)
++else()
++    set(_kdbusaddons_headers KDBusService KDEDModule KUpdateLaunchEnvironmentJob)
++endif()
+ ecm_generate_headers(KDBusAddons_CamelCase_HEADERS
+   HEADER_NAMES
+-  KDBusService
+-  KDEDModule
+-  KUpdateLaunchEnvironmentJob
++  ${_kdbusaddons_headers}
+   REQUIRED_HEADERS KDBusAddons_HEADERS
+ )
+ 
+diff --git a/src/kdbusservice_ios.cpp b/src/kdbusservice_ios.cpp
+new file mode 100644
+index 0000000..3c91dbb
+--- /dev/null
++++ b/src/kdbusservice_ios.cpp
+@@ -0,0 +1,82 @@
++/*
++    iNux: KDBusService on iOS.
++
++    There is no D-Bus on iOS, and the system already guarantees a single
++    running instance per app. KDBusService therefore registers nothing and
++    reports success, so apps that use it (most KDE apps, for single-instance
++    handling) start normally.
++
++    SPDX-License-Identifier: LGPL-2.0-or-later
++*/
++#include "kdbusservice.h"
++
++#include <QCoreApplication>
++#include <QVariant>
++
++class KDBusServicePrivate
++{
++public:
++    QString serviceName;
++    int exitValue = 0;
++};
++
++KDBusService::KDBusService(StartupOptions options, QObject *parent)
++    : QObject(parent)
++    , d(new KDBusServicePrivate)
++{
++    Q_UNUSED(options);
++    const QString domain = QCoreApplication::organizationDomain();
++    QString reversed;
++    if (!domain.isEmpty()) {
++        const QStringList parts = domain.split(QLatin1Char('.'), Qt::SkipEmptyParts);
++        for (auto it = parts.crbegin(); it != parts.crend(); ++it) {
++            reversed += *it + QLatin1Char('.');
++        }
++    }
++    d->serviceName = reversed + QCoreApplication::applicationName();
++}
++
++KDBusService::~KDBusService() = default;
++
++bool KDBusService::isRegistered() const
++{
++    return true;
++}
++
++QString KDBusService::serviceName() const
++{
++    return d->serviceName;
++}
++
++QString KDBusService::errorMessage() const
++{
++    return QString();
++}
++
++void KDBusService::setExitValue(int value)
++{
++    d->exitValue = value;
++}
++
++void KDBusService::unregister()
++{
++}
++
++void KDBusService::Activate(const QVariantMap &)
++{
++}
++
++void KDBusService::Open(const QStringList &, const QVariantMap &)
++{
++}
++
++void KDBusService::ActivateAction(const QString &, const QVariantList &, const QVariantMap &)
++{
++}
++
++int KDBusService::CommandLine(const QStringList &, const QString &, const QVariantMap &)
++{
++    return 0;
++}
++
++#include "moc_kdbusservice.cpp"
