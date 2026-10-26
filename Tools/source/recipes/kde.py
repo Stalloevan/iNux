@@ -78,6 +78,7 @@ FRAMEWORK_PATCHES = {
     "kdbusaddons": ["patches/kdbusaddons-ios-nodbus.patch"],
     "kpackage": ["patches/kpackage-static-build.patch"],
     "kcoreaddons": ["patches/kcoreaddons-ios-complete.patch"],
+    "knewstuff": ["patches/knewstuff-static-build.patch"],
 }
 
 # Fixes for static builds, needed on the host side too.
