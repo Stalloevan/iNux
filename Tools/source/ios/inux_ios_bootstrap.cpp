@@ -49,8 +49,8 @@ void linkShareIntoAppSupport()
     const std::string share = bundle + "/share";
 
     // QML modules installed outside Qt (e.g. org.kde.games.core) are bundled
-    // in <bundle>/qml; tell the QML engine before it starts.
-    const std::string qml = bundle + "/qml";
+    // in <bundle>/qml-modules; tell the QML engine before it starts.
+    const std::string qml = bundle + "/qml-modules";
     struct stat qst;
     if (stat(qml.c_str(), &qst) == 0) {
         const char *old = getenv("QML_IMPORT_PATH");

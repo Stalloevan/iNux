@@ -100,9 +100,12 @@ SHARE_EXCLUDE = {
 }
 
 
-def copy_share(app, share_dir):
+def copy_share(app, share_dir, app_names=()):
     """Copies an install prefix's share/ into <App>.app/share, where the
-    iNux bootstrap links it into Application Support at launch."""
+    iNux bootstrap links it into Application Support at launch. The app's
+    own data folder (share/<app>) goes to the bundle root instead: on iOS,
+    Qt's AppDataLocation always includes the bundle root, whatever the
+    organization name, so lookups like "qml/main.qml" find it there."""
     if not share_dir or not os.path.isdir(share_dir):
         return
     dest = os.path.join(app, "share")
@@ -112,7 +115,12 @@ def copy_share(app, share_dir):
         if entry in SHARE_EXCLUDE or entry.startswith("."):
             continue
         src = os.path.join(share_dir, entry)
-        target = os.path.join(dest, entry)
+        target = os.path.join(app if entry in app_names else dest, entry)
+        if entry in app_names and os.path.isdir(src):
+            shutil.copytree(src, app, dirs_exist_ok=True)
+            total += bundle_size(src)
+            print("  app data share/%s -> bundle root" % entry)
+            continue
         if os.path.isdir(src):
             shutil.copytree(src, target, symlinks=False, dirs_exist_ok=True)
         else:
@@ -129,7 +137,7 @@ def copy_qml(app, qml_dir):
     target; dropping it makes the engine use the bundled files."""
     if not qml_dir or not os.path.isdir(qml_dir):
         return
-    dest = os.path.join(app, "qml")
+    dest = os.path.join(app, "qml-modules")
     for root, _dirs, files in os.walk(qml_dir):
         rel = os.path.relpath(root, qml_dir)
         if "objects-Release" in root.split(os.sep) or "objects-Debug" in root.split(os.sep):
@@ -200,7 +208,8 @@ def main():
         if icon:
             print("using icon", icon)
     set_icon(app, icon)
-    copy_share(app, a.share_dir)
+    exe = os.path.splitext(os.path.basename(app))[0]
+    copy_share(app, a.share_dir, app_names={exe, name})
     copy_qml(app, a.qml_dir)
     ipa = make_ipa(app, a.out)
     size = os.path.getsize(ipa)
