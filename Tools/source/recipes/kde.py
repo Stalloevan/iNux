@@ -56,8 +56,14 @@ EXTRA_DEPS = {
 }
 
 
+# Per-framework iOS source fixes (see recipes/patches/README.md).
+FRAMEWORK_PATCHES = {
+    "kconfig": ["patches/kconfig-ios-qprocess.patch"],
+}
+
+
 def framework_module(name, tag):
-    return {
+    m = {
         "name": name,
         "buildsystem": "cmake-ninja",
         # iOS build hygiene: no host tools, examples or tests inside the app.
@@ -72,6 +78,9 @@ def framework_module(name, tag):
             "tag": "v" + tag,
         }],
     }
+    if name in FRAMEWORK_PATCHES:
+        m["inux-patches"] = FRAMEWORK_PATCHES[name]
+    return m
 
 
 def ecm_module(tag):

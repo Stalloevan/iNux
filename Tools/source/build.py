@@ -226,6 +226,12 @@ def build_module(module, tc, srcroot, cache, jobs):
 
     srcdir = os.path.join(srcroot, name)
     primary = fetch_sources(module, srcdir, cache)
+    for rel in module.get("inux-patches", []):
+        patch = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recipes", rel)
+        log("applying iOS patch", rel)
+        if run(["git", "apply", "--unidiff-zero", "-p1", patch], cwd=primary, check=False) != 0:
+            if run(["patch", "-p1", "-l", "-i", patch], cwd=primary, check=False) != 0:
+                raise SystemExit("patch %s did not apply to %s" % (rel, name))
     if module.get("subdir"):
         primary = os.path.join(primary, module["subdir"])
 

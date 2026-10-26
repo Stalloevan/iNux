@@ -1,0 +1,12 @@
+--- a/src/core/kconfig.cpp
++++ b/src/core/kconfig.cpp
+@@ -539,1 +539,3 @@
+-        QProcess::execute(QStringLiteral(KCONF_UPDATE_INSTALL_LOCATION), QStringList{QStringLiteral("--check"), updateFile});
++#if QT_CONFIG(process)
++        QProcess::execute(QStringLiteral(KCONF_UPDATE_INSTALL_LOCATION), QStringList{QStringLiteral("--check"), updateFile});
++#endif
+@@ -962,1 +962,3 @@
+-            QProcess::execute(cmdToExec, QStringList{QStringLiteral("--title"), QCoreApplication::applicationName(), QStringLiteral("--msgbox"), errorMsg});
++#if QT_CONFIG(process)
++            QProcess::execute(cmdToExec, QStringList{QStringLiteral("--title"), QCoreApplication::applicationName(), QStringLiteral("--msgbox"), errorMsg});
++#endif
