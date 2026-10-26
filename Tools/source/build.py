@@ -308,6 +308,9 @@ def detect_buildsystem(srcdir, declared):
 
 
 def module_hash(module):
+    if not SIMULATOR:
+        # Simulator-only settings do not change device builds.
+        module = {k: v for k, v in module.items() if k != "inux-simulator-compat"}
     data = json.dumps(module, sort_keys=True)
     for rel in module.get("inux-patches", []):
         p = os.path.join(HERE, "recipes", rel)
@@ -401,7 +404,8 @@ def build_module(module, tc, srcroot, cache, jobs, plan_dir, app_settings):
                         "PKG_CONFIG_PATH", "PKG_CONFIG_LIBDIR", "CMAKE_PREFIX_PATH"):
                 env.pop(var, None)
             app_link = APP_LINK_ARGS if module.get("app") else []
-            setup += ["--cross-file", write_meson_cross(tc, os.path.join(srcroot, name + "-cross.ini"), app_link)]
+            setup += ["--cross-file", write_meson_cross(tc, os.path.join(srcroot, name + "-cross.ini"), app_link,
+                                                        sim_compat=module.get("inux-simulator-compat", False))]
         run(setup + opts, env=env)
         run(["meson", "compile", "-C", builddir, "-j", str(jobs)], env=env)
         run(["meson", "install", "-C", builddir], env=env)
@@ -559,14 +563,14 @@ APP_LINK_ARGS = [
 COMMON_LINK_ARGS = ["-lc++", "-liconv", "-lresolv"]
 
 
-def write_meson_cross(tc, path, extra_link=()):
+def write_meson_cross(tc, path, extra_link=(), sim_compat=False):
     def lst(flags):
         items = flags.split() if isinstance(flags, str) else list(flags)
         return ", ".join("'%s'" % f.replace("'", "\\'") for f in items)
     # -w: third-party code floods the log with warnings (GLib alone emits
     # hundreds of thousands of lines); errors are what matter here.
     compile_flags = "-I%s/include -w" % tc.prefix
-    if tc.sim_compat:
+    if tc.sim_compat and sim_compat:
         compile_flags += " -include " + tc.sim_compat
     link_flags = ["-L%s/lib" % tc.prefix] + COMMON_LINK_ARGS + list(extra_link)
     tools = []

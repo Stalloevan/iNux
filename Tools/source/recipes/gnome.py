@@ -87,7 +87,7 @@ def stack_modules():
         "-Dglib_debug=disabled", "-Dnls=enabled",
         # Bundled as Meson subprojects, linked statically.
         "--force-fallback-for=libffi,libpcre2-8",
-    ]))
+    ], **{"inux-simulator-compat": True}))
 
     mods.append(cmake("libpng", "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.50.tar.gz", [
         "-DPNG_SHARED=OFF", "-DPNG_STATIC=ON", "-DPNG_FRAMEWORK=OFF", "-DPNG_TESTS=OFF",
