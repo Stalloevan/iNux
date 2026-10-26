@@ -1,24 +1,54 @@
 # iNux
 
-An iOS app that sends a Linux app (`.AppImage` or `.flatpak`) to this repository's CI and gets back an unsigned `.ipa` that wraps it.
+An iOS app that takes a Linux app and produces an unsigned `.ipa` by
+**recompiling it from source for iOS**, using this repository's CI.
 
 ## How it works
 
-1. In the iNux app, pick a file. The app reads the first bytes to identify the type and CPU architecture.
-2. It uploads the file as a temporary release asset (`src-<id>`) and triggers the **Port a Linux app** workflow through the GitHub REST API.
-3. On a Linux runner, `Tools/port/port.py` extracts the AppImage (squashfs) or Flatpak bundle (ostree), reads the `.desktop` entry and icon, scans the binaries, and writes a `manifest.json`.
-4. On a macOS runner, the generic wrapper in `Template/` is built with the payload embedded as a resource folder, packaged as an unsigned IPA and published as release `app-<id>`. The temporary source release is deleted.
-5. The app polls the release, downloads the IPA and offers it through the share sheet. Sign and install it with your usual sideloading tool.
+1. In the iNux app, enter a Flathub app id (for example `org.kde.kcalc`) or
+   pick an `.AppImage`/`.flatpak` file. A file is only used to read the
+   app's id and source location; its Linux binary is not run.
+2. The app triggers the **Source build** workflow through the GitHub API.
+3. `Tools/source/resolve.py` fetches the app's Flathub manifest (the list of
+   modules, their sources and build systems) and writes a build plan.
+4. For a Qt/KDE app, `Tools/source/recipes/kde.py` adds the runtime
+   dependencies that `org.kde.Platform` would normally provide — Extra CMake
+   Modules and KDE Frameworks 6 — in dependency order.
+5. `Tools/source/build.py` cross-compiles every module for iOS (device
+   arm64) with the iOS toolchain and Qt for iOS (installed by `aqtinstall`),
+   staging them into a prefix, then builds the app itself.
+6. The resulting `.app` is wrapped as an unsigned IPA and published as a
+   release. The app downloads it. Sign it with your usual tool to install.
+
+Building iNux itself: bumping `VERSION` on `main` builds and releases the
+iNux IPA. On every change to the pipeline, **Source-build self-test**
+compiles a small Qt app from source for iOS and publishes it as the
+`source-selftest` pre-release, so the core path stays verified.
 
 ## Setup
 
-- Push this repo to GitHub with Actions enabled. Bumping `VERSION` on `main` builds and releases iNux itself (`build.yml`).
-- In the app's Settings, enter the owner and repository name and a GitHub token (classic: `repo` + `workflow`; fine-grained: Contents and Actions read/write on this repository).
+Push this repo to GitHub with Actions enabled. In the app's Settings, enter
+the owner and repository name and a GitHub token (classic: `repo` +
+`workflow`; fine-grained: Contents and Actions read/write).
 
-## Honest limits
+## What works, and what is still rough
 
-Porting here means packaging plus a compatibility report. The generated app contains the extracted program but **no execution backend**, because iOS cannot run Linux binaries natively: there is no Linux kernel interface, no JIT without special entitlements, and no executing unsigned code from the bundle. `Template/Sources/Runtime.swift` defines an `ExecutionBackend` protocol where an x86-64 emulator or Linux userland layer can be added. Until one is, tapping Launch explains what is missing.
+- **Command-line and pure-Qt apps**: compile cleanly and run natively at
+  full speed. This is the self-tested path.
+- **KDE apps**: the KDE Frameworks they need are cross-compiled from source
+  (`recipes/kde.py`). The common, Qt-only frameworks are covered; an app
+  that needs a framework pulling in X11, Wayland, D-Bus system services or
+  other Linux-only pieces will fail at that framework's build with a clear
+  error. Add frameworks with the workflow's `frameworks` input.
+- **GTK/GNOME apps**: not supported yet. GTK has no iOS backend, so the
+  stack (glib, GTK) and a UIKit GDK backend still need to be built; this is
+  the next piece of work (see the open task in the repo).
+- Everything is unsigned; sign the IPA with your own tool before installing.
 
-Other limits: Flatpak bundles normally do not include their runtime; type 1 AppImages are unsupported; absolute symlinks are dropped; very large payloads may be rejected by sideloading tools.
+## The emulator (kept, switched off)
 
-Nothing in this repository has been compiled or tested on a device yet.
+An earlier approach ran the Linux binary directly with a bundled x86-64
+emulator (Blink) and a terminal. That code is preserved under `Emulator/`
+with its workflows renamed `emulator-*` and set to manual dispatch only. The
+app no longer uses it. It is kept in case a no-source fallback is wanted
+later; nothing in the current pipeline depends on it.

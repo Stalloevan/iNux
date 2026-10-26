@@ -1,0 +1,66 @@
+name: Source-build self-test
+
+# Proves the source pipeline: installs Qt for iOS, cross-compiles a small
+# Qt Widgets app, packages an unsigned IPA, publishes it as the
+# "source-selftest" pre-release. This is the core path every Qt/KDE port
+# relies on.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Tools/source/**
+      - .github/workflows/source-selftest.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  QT_VERSION: 6.8.3
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Qt (host + iOS) and tools
+        run: |
+          python3 -m pip install --upgrade aqtinstall
+          python3 -m aqt install-qt mac desktop "$QT_VERSION" -O "$HOME/Qt" -m qtbase qtdeclarative qtsvg
+          python3 -m aqt install-qt mac ios "$QT_VERSION" -O "$HOME/Qt" -m qtbase qtdeclarative qtsvg
+          brew install ninja
+          echo "QT_IOS=$HOME/Qt/$QT_VERSION/ios" >> "$GITHUB_ENV"
+          echo "QT_HOST=$HOME/Qt/$QT_VERSION/macos" >> "$GITHUB_ENV"
+
+      - name: Build the test app
+        run: |
+          mkdir -p build
+          cd build
+          "$QT_IOS/bin/qt-cmake" ../Tools/source/qtapp \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQT_HOST_PATH="$QT_HOST" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
+          cmake --build . -j3
+
+      - name: Package IPA
+        run: |
+          python3 Tools/source/package_ipa.py --search build \
+            --out "iNux-QtSelfTest.ipa" --name "iNux Qt" \
+            --bundle-id com.inux.ported.qtselftest
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete source-selftest --cleanup-tag --yes || true
+          gh release create source-selftest "iNux-QtSelfTest.ipa" \
+            --title "Source-build self-test (Qt)" --prerelease \
+            --notes "A Qt Widgets app compiled from source for iOS by the iNux pipeline. Unsigned." \
+            --target "${{ github.sha }}"

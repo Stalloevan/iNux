@@ -1,17 +1,10 @@
-name: Engine self-test
+name: Emulator self-test (inactive)
 
 # End-to-end check of the translation layer: builds a small x86-64 test
 # AppImage, ports it, runs it under the engine on Linux, then builds the
 # iOS app around it and publishes it as the "selftest" pre-release.
+# Inactive: the emulator is kept for later but not used. Run manually only.
 on:
-  push:
-    branches: [main]
-    paths:
-      - Engine/**
-      - Template/**
-      - Tools/**
-      - .github/workflows/selftest.yml
-      - .github/workflows/build-ipa.yml
   workflow_dispatch:
 
 permissions:
@@ -33,21 +26,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/engine-host
-          key: engine-host-v1-${{ runner.os }}-${{ hashFiles('Engine/**') }}
+          key: engine-host-v1-${{ runner.os }}-${{ hashFiles('Emulator/Engine/**') }}
 
       - name: Build engine for Linux
         if: steps.engine-cache.outputs.cache-hit != 'true'
-        run: bash Tools/ci/run-logged.sh "Linux engine build" sh Engine/build-engine.sh host build/engine-host
+        run: bash Tools/ci/run-logged.sh "Linux engine build" sh Emulator/Engine/build-engine.sh host build/engine-host
 
       - name: Build test AppImage
-        run: sh Engine/test/make-test-appimage.sh Hello.AppImage
+        run: sh Emulator/Engine/test/make-test-appimage.sh Hello.AppImage
 
       - name: Port it
-        run: python3 Tools/port/port.py --src Hello.AppImage --name "Hello iNux" --out Generated --no-apt
+        run: python3 Emulator/port/port.py --src Hello.AppImage --name "Hello iNux" --out Generated --no-apt
 
       - name: Run it under the engine
         run: >
-          python3 Tools/port/smoke.py Generated build/engine-host/bin/inux-run
+          python3 Emulator/port/smoke.py Generated build/engine-host/bin/inux-run
           --args=--interactive --stdin "iNux CI" --expect "Nice to meet you, iNux CI."
 
       - name: Pack payload
@@ -61,7 +54,7 @@ jobs:
 
   ios:
     needs: linux
-    uses: ./.github/workflows/build-ipa.yml
+    uses: ./.github/workflows/emulator-build-ipa.yml
     with:
       payload_artifact: selftest-payload
       app_name: Hello iNux

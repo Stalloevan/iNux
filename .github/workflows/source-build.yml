@@ -1,0 +1,110 @@
+name: Source build
+
+run-name: Build ${{ inputs.app_id || inputs.job_id }} from source
+
+# Resolves an app to its Flathub build plan, cross-compiles its runtime
+# dependencies (KDE Frameworks for Qt/KDE apps) and the app itself for iOS,
+# and publishes an unsigned IPA.
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Job id from the iNux app
+        required: true
+      app_id:
+        description: Flathub app id (e.g. org.kde.kcalc), or leave blank to use an uploaded file
+        required: false
+      asset_name:
+        description: Uploaded source file attached to release src-<job_id>, if no app_id
+        required: false
+      kf_version:
+        description: KDE Frameworks version tag
+        required: false
+        default: "6.11.0"
+      frameworks:
+        description: Comma-separated KF frameworks to build (blank = default set)
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  QT_VERSION: 6.8.3
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          python3 -m pip install --upgrade aqtinstall pyyaml
+          brew install ninja meson pkg-config
+
+      - name: Install Qt (host + iOS)
+        run: |
+          python3 -m aqt install-qt mac desktop "$QT_VERSION" -O "$HOME/Qt" -m qtbase qtdeclarative qtsvg qtimageformats
+          python3 -m aqt install-qt mac ios "$QT_VERSION" -O "$HOME/Qt" -m qtbase qtdeclarative qtsvg qtimageformats
+          echo "QT_IOS=$HOME/Qt/$QT_VERSION/ios" >> "$GITHUB_ENV"
+          echo "QT_HOST=$HOME/Qt/$QT_VERSION/macos" >> "$GITHUB_ENV"
+
+      - name: Download uploaded source (if any)
+        if: inputs.app_id == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p work
+          gh release download "src-${{ inputs.job_id }}" --pattern "${{ inputs.asset_name }}" --dir work
+
+      - name: Resolve build plan
+        run: |
+          if [ -n "${{ inputs.app_id }}" ]; then
+            python3 Tools/source/resolve.py --app-id "${{ inputs.app_id }}" --out plan
+          else
+            python3 Tools/source/resolve.py --file "work/${{ inputs.asset_name }}" --out plan
+          fi
+          cat plan/plan.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('toolkit:',d['toolkit'],'runtime:',d['runtime'])"
+
+      - name: Prepare runtime recipe (KDE)
+        id: recipe
+        run: |
+          TOOLKIT=$(python3 -c "import json;print(json.load(open('plan/plan.json'))['toolkit'])")
+          RUNTIME=$(python3 -c "import json;print(json.load(open('plan/plan.json')).get('runtime') or '')")
+          if echo "$TOOLKIT" | grep -q qt && echo "$RUNTIME" | grep -q org.kde; then
+            python3 Tools/source/recipes/kde.py --kf-version "${{ inputs.kf_version }}" \
+              ${{ inputs.frameworks && format('--frameworks {0}', inputs.frameworks) || '' }} > recipe.json
+            echo "prepend=--prepend recipe.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "No KDE runtime recipe for toolkit=$TOOLKIT runtime=$RUNTIME; building app modules only."
+            echo "prepend=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cross-compile for iOS
+        run: >
+          bash Tools/ci/run-logged.sh "Source build"
+          python3 Tools/source/build.py --plan plan/plan.json --prefix stage
+          --qt "$QT_IOS" ${{ steps.recipe.outputs.prepend }} --jobs 3
+
+      - name: Package IPA
+        run: |
+          ICON=""
+          [ -f plan/files/icon.png ] && ICON="--icon plan/files/icon.png"
+          python3 Tools/source/package_ipa.py --search . \
+            --out "Ported-${{ inputs.job_id }}.ipa" \
+            --name "${{ inputs.app_id || inputs.job_id }}" \
+            --bundle-id "com.inux.ported.j${{ inputs.job_id }}" $ICON
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "app-${{ inputs.job_id }}" "Ported-${{ inputs.job_id }}.ipa" \
+            --title "${{ inputs.app_id || inputs.job_id }}" --prerelease \
+            --notes "Compiled from source for iOS by iNux. Unsigned; sign before installing." \
+            --target "${{ github.sha }}"
+          gh release delete "src-${{ inputs.job_id }}" --cleanup-tag --yes || true

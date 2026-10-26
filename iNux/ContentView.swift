@@ -5,6 +5,8 @@ struct ContentView: View {
     @EnvironmentObject var store: AppStore
     @State private var importing = false
     @State private var showSettings = false
+    @State private var askID = false
+    @State private var appID = ""
 
     var body: some View {
         NavigationStack {
@@ -16,7 +18,7 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                         Text("No ports yet")
                             .font(.headline)
-                        Text("Tap + and choose an .AppImage or .flatpak file.")
+                        Text("Tap + to enter a Flathub app id (like org.kde.kcalc) or pick an .AppImage or .flatpak file. The app is recompiled from source for iOS.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -44,8 +46,25 @@ struct ContentView: View {
                     Button { showSettings = true } label: { Image(systemName: "gearshape") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { importing = true } label: { Image(systemName: "plus") }
+                    Menu {
+                        Button { askID = true } label: { Label("From Flathub id…", systemImage: "number") }
+                        Button { importing = true } label: { Label("From file…", systemImage: "doc") }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                 }
+            }
+            .alert("Flathub app id", isPresented: $askID) {
+                TextField("org.kde.kcalc", text: $appID)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Build") {
+                    store.submit(appID: appID)
+                    appID = ""
+                }
+                Button("Cancel", role: .cancel) { appID = "" }
+            } message: {
+                Text("The id from the app's Flathub page, used to fetch its source and build recipe.")
             }
             .fileImporter(isPresented: $importing,
                           allowedContentTypes: [.data, .item],

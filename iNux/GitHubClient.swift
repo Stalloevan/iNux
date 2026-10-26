@@ -93,17 +93,18 @@ struct GitHubClient {
         try check(data, resp, ok: [201])
     }
 
-    func dispatchPort(jobID: String, appName: String, kind: String, assetName: String) async throws {
-        var r = request(api("/actions/workflows/port.yml/dispatches"), method: "POST")
-        let body: [String: Any] = [
-            "ref": "main",
-            "inputs": [
-                "job_id": jobID,
-                "app_name": appName,
-                "kind": kind,
-                "asset_name": assetName
-            ]
-        ]
+    /// Starts the source-build workflow. Pass either a Flathub app id or the
+    /// name of a source file already uploaded to release src-<jobID>.
+    func dispatchSourceBuild(jobID: String, appID: String?, assetName: String?) async throws {
+        var r = request(api("/actions/workflows/source-build.yml/dispatches"), method: "POST")
+        var inputs: [String: String] = ["job_id": jobID]
+        if let appID = appID, !appID.isEmpty {
+            inputs["app_id"] = appID
+        }
+        if let assetName = assetName, !assetName.isEmpty {
+            inputs["asset_name"] = assetName
+        }
+        let body: [String: Any] = ["ref": "main", "inputs": inputs]
         r.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, resp) = try await URLSession.shared.data(for: r)
         try check(data, resp, ok: [204])
@@ -117,12 +118,12 @@ struct GitHubClient {
         return try JSONDecoder().decode(Release.self, from: data)
     }
 
-    func run(titled title: String) async throws -> Run? {
-        let r = request(api("/actions/runs?event=workflow_dispatch&per_page=15"))
+    func run(containing needle: String) async throws -> Run? {
+        let r = request(api("/actions/runs?event=workflow_dispatch&per_page=20"))
         let (data, resp) = try await URLSession.shared.data(for: r)
         try check(data, resp, ok: [200])
         let runs = try JSONDecoder().decode(Runs.self, from: data)
-        return runs.workflow_runs.first(where: { $0.display_title == title })
+        return runs.workflow_runs.first(where: { ($0.display_title ?? "").contains(needle) })
     }
 
     func download(assetURL: String, to destination: URL) async throws {

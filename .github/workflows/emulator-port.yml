@@ -1,4 +1,6 @@
-name: Port a Linux app
+name: Emulator port (inactive)
+
+# Kept for later; the iNux app now uses source-build.yml.
 
 run-name: Port ${{ inputs.job_id }}
 
@@ -48,21 +50,21 @@ jobs:
           ASSET: ${{ inputs.asset_name }}
           KIND: ${{ inputs.kind }}
           APP_NAME: ${{ inputs.app_name }}
-        run: python3 Tools/port/port.py --src "work/$ASSET" --kind "$KIND" --name "$APP_NAME" --out Generated
+        run: python3 Emulator/port/port.py --src "work/$ASSET" --kind "$KIND" --name "$APP_NAME" --out Generated
 
       - name: Cache engine
         id: engine-cache
         uses: actions/cache@v4
         with:
           path: build/engine-host
-          key: engine-host-v1-${{ runner.os }}-${{ hashFiles('Engine/**') }}
+          key: engine-host-v1-${{ runner.os }}-${{ hashFiles('Emulator/Engine/**') }}
 
       - name: Build engine for Linux
         if: steps.engine-cache.outputs.cache-hit != 'true'
-        run: bash Tools/ci/run-logged.sh "Linux engine build" sh Engine/build-engine.sh host build/engine-host
+        run: bash Tools/ci/run-logged.sh "Linux engine build" sh Emulator/Engine/build-engine.sh host build/engine-host
 
       - name: Smoke test under the engine
-        run: python3 Tools/port/smoke.py Generated build/engine-host/bin/inux-run --timeout 120
+        run: python3 Emulator/port/smoke.py Generated build/engine-host/bin/inux-run --timeout 120
 
       - name: Pack payload
         run: tar -czf payload.tgz Generated
@@ -75,7 +77,7 @@ jobs:
 
   ipa:
     needs: extract
-    uses: ./.github/workflows/build-ipa.yml
+    uses: ./.github/workflows/emulator-build-ipa.yml
     with:
       payload_artifact: payload
       app_name: ${{ inputs.app_name }}

@@ -1,10 +1,10 @@
 *.xcodeproj
 build/
 .DS_Store
-Template/Support/
-Template/Generated/*
-!Template/Generated/.gitkeep
+Emulator/Template/Support/
+Emulator/Template/Generated/*
+!Emulator/Template/Generated/.gitkeep
 Support/iNux-Info.plist
 __pycache__/
-Template/Engine/
+Emulator/Template/Engine/
 blink-smoke.log

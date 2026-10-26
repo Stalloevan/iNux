@@ -1,4 +1,4 @@
-name: Build ported IPA
+name: Emulator IPA build (inactive)
 
 # Reusable: turns a payload (Generated/ folder from Tools/port) into an
 # unsigned IPA of the Template app with the iNux engine linked in.
@@ -48,40 +48,40 @@ jobs:
 
       - name: Unpack payload
         run: |
-          rm -rf Template/Generated
-          tar -C Template -xzf payload.tgz
-          cat Template/Generated/manifest.json | head -c 2000
+          rm -rf Emulator/Template/Generated
+          tar -C Emulator/Template -xzf payload.tgz
+          cat Emulator/Template/Generated/manifest.json | head -c 2000
 
       - name: Cache engine
         id: engine-cache
         uses: actions/cache@v4
         with:
           path: build/engine-ios
-          key: engine-ios-v1-${{ hashFiles('Engine/BLINK_COMMIT', 'Engine/build-engine.sh', 'Engine/shim/**') }}
+          key: engine-ios-v1-${{ hashFiles('Emulator/Engine/BLINK_COMMIT', 'Emulator/Engine/build-engine.sh', 'Emulator/Engine/shim/**') }}
 
       - name: Build engine for iOS
         if: steps.engine-cache.outputs.cache-hit != 'true'
-        run: bash Tools/ci/run-logged.sh "iOS engine build" sh Engine/build-engine.sh ios build/engine-ios
+        run: bash Tools/ci/run-logged.sh "iOS engine build" sh Emulator/Engine/build-engine.sh ios build/engine-ios
 
       - name: Install engine into template
         run: |
-          mkdir -p Template/Engine
-          cp -R build/engine-ios/lib build/engine-ios/include Template/Engine/
-          ls -la Template/Engine/lib
+          mkdir -p Emulator/Template/Engine
+          cp -R build/engine-ios/lib build/engine-ios/include Emulator/Template/Engine/
+          ls -la Emulator/Template/Engine/lib
 
       - run: brew install xcodegen
 
       - name: Generate project
-        working-directory: Template
+        working-directory: Emulator/Template
         env:
           DISPLAY_NAME: ${{ inputs.app_name }}
           BUNDLE_ID: com.inux.ported.${{ inputs.bundle_suffix }}
         run: xcodegen generate
 
       - name: Build
-        working-directory: Template
+        working-directory: Emulator/Template
         run: >
-          bash ../Tools/ci/run-logged.sh "Xcode build"
+          bash ../../Tools/ci/run-logged.sh "Xcode build"
           xcodebuild -project PortedApp.xcodeproj -scheme PortedApp -configuration Release
           -sdk iphoneos -derivedDataPath build
           -skipPackagePluginValidation -skipMacroValidation
@@ -93,7 +93,7 @@ jobs:
           IPA_NAME: ${{ inputs.ipa_name }}
         run: |
           mkdir Payload
-          cp -R Template/build/Build/Products/Release-iphoneos/PortedApp.app Payload/
+          cp -R Emulator/Template/build/Build/Products/Release-iphoneos/PortedApp.app Payload/
           zip -qry "$IPA_NAME" Payload
           ls -la "$IPA_NAME"
 

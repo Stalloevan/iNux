@@ -82,9 +82,10 @@ final class AppStore: ObservableObject {
         let id = String(UUID().uuidString.prefix(8)).lowercased()
         let name = fileURL.deletingPathExtension().lastPathComponent
         let assetName = Self.safeAssetName(fileURL.lastPathComponent)
-        let job = PortJob(id: id, name: name, kind: report.kind.rawValue, arch: report.arch,
+        let job = PortJob(id: id, name: name, kind: report.kind.rawValue, arch: "arm64",
                           status: "uploading", detail: "Copying file", createdAt: Date(),
-                          ipaFile: nil, notes: report.notes)
+                          ipaFile: nil,
+                          notes: ["iNux reads the app id from this \(report.kind.rawValue) and rebuilds it from source for iOS, rather than running the Linux binary inside."])
         jobs.insert(job, at: 0)
 
         let client = self.client
@@ -92,6 +93,36 @@ final class AppStore: ObservableObject {
         Task {
             await self.run(id: id, name: name, kind: kind, source: fileURL, scoped: scoped,
                            assetName: assetName, client: client)
+        }
+    }
+
+    /// Build straight from a Flathub app id (org.kde.kcalc), no upload.
+    func submit(appID rawID: String) {
+        let appID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            banner = "Add a GitHub token in Settings first."
+            return
+        }
+        guard appID.contains("."), !appID.contains(" ") else {
+            banner = "Enter a Flathub app id like org.kde.kcalc."
+            return
+        }
+        let id = String(UUID().uuidString.prefix(8)).lowercased()
+        let name = appID.components(separatedBy: ".").last ?? appID
+        let job = PortJob(id: id, name: name, kind: "source", arch: "arm64",
+                          status: "building", detail: "Resolving \(appID)", createdAt: Date(),
+                          ipaFile: nil, notes: ["Building \(appID) from source for iOS (arm64, native)."])
+        jobs.insert(job, at: 0)
+        let client = self.client
+        Task {
+            do {
+                try await client.dispatchSourceBuild(jobID: id, appID: appID, assetName: nil)
+                update(id) { $0.detail = "Compiling from source on GitHub Actions" }
+            } catch {
+                update(id) { $0.status = "failed"; $0.detail = error.localizedDescription }
+                return
+            }
+            await poll(id: id, client: client)
         }
     }
 
@@ -111,8 +142,8 @@ final class AppStore: ObservableObject {
             update(id) { $0.detail = "Uploading to GitHub" }
             try await client.upload(file: tmp, assetName: assetName, to: release)
             update(id) { $0.detail = "Starting build" }
-            try await client.dispatchPort(jobID: id, appName: name, kind: kind, assetName: assetName)
-            update(id) { $0.status = "building"; $0.detail = "Queued on GitHub Actions" }
+            try await client.dispatchSourceBuild(jobID: id, appID: nil, assetName: assetName)
+            update(id) { $0.status = "building"; $0.detail = "Resolving and compiling from source" }
         } catch {
             update(id) { $0.status = "failed"; $0.detail = error.localizedDescription }
             return
@@ -146,7 +177,7 @@ final class AppStore: ObservableObject {
                     update(id) { $0.status = "done"; $0.ipaFile = asset.name; $0.detail = "IPA ready (unsigned)" }
                     return
                 }
-                if let run = try await client.run(titled: "Port \(id)") {
+                if let run = try await client.run(containing: id) {
                     if run.status == "completed" && run.conclusion != "success" {
                         update(id) {
                             $0.status = "failed"
