@@ -331,6 +331,8 @@ def build_module(module, tc, srcroot, cache, jobs, plan_dir, app_settings):
 
     bs = detect_buildsystem(primary, module.get("buildsystem"))
     env = tc.env(host=host)
+    if not host:
+        fix_static_package_configs(tc.prefix, tc.qt)
     opts = [o.replace("@HOST_PREFIX@", tc.host_prefix).replace("@PREFIX@", tc.prefix)
             for o in module.get("config-opts", [])]
     log("=== building %s (%s%s)" % (name, bs, ", host tool" if host else ""))
@@ -388,6 +390,62 @@ def build_module(module, tc, srcroot, cache, jobs, plan_dir, app_settings):
 
     if module.get("ecm") or name.endswith("extra-cmake-modules"):
         allow_ios_in_ecm(tc.host_prefix if host else tc.prefix)
+
+
+TARGET_DEF_RE = re.compile(r"add_library\(\s*([A-Za-z0-9_]+::[A-Za-z0-9_]+)\s")
+TARGET_REF_RE = re.compile(r"\b((?:Qt6|KF6|KDEGames6)::[A-Za-z0-9_]+)\b")
+STATIC_DEPS_MARK = "# iNux: dependencies of a static build"
+
+
+def fix_static_package_configs(prefix, qt):
+    """Static libraries export their private link dependencies, but KDE's
+    package config files only load the packages a shared build needs. For
+    every package installed in the prefix, find the targets its exported
+    files reference but do not define, work out which installed package (or
+    Qt module) defines each, and add the missing find_dependency() calls.
+    Idempotent; runs before every iOS build."""
+    roots = [os.path.join(prefix, "lib", "cmake")]
+    if qt:
+        roots.append(os.path.join(qt, "lib", "cmake"))
+    owner = {}
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for pkg in os.listdir(root):
+            d = os.path.join(root, pkg)
+            if not os.path.isdir(d):
+                continue
+            for f in os.listdir(d):
+                if f.endswith(".cmake") and "Targets" in f:
+                    for t in TARGET_DEF_RE.findall(open(os.path.join(d, f), errors="replace").read()):
+                        owner.setdefault(t, pkg)
+    root = roots[0]
+    if not os.path.isdir(root):
+        return
+    for pkg in sorted(os.listdir(root)):
+        d = os.path.join(root, pkg)
+        config = os.path.join(d, pkg + "Config.cmake")
+        if not os.path.isfile(config):
+            continue
+        text = open(config).read()
+        if STATIC_DEPS_MARK in text:
+            continue
+        defined, referenced = set(), set()
+        for f in os.listdir(d):
+            if f.endswith(".cmake") and "Targets" in f:
+                body = open(os.path.join(d, f), errors="replace").read()
+                defined.update(TARGET_DEF_RE.findall(body))
+                for line in body.splitlines():
+                    if "INTERFACE_LINK_LIBRARIES" in line:
+                        referenced.update(TARGET_REF_RE.findall(line))
+        needed = sorted({owner[t] for t in referenced - defined if t in owner and owner[t] != pkg})
+        if not needed:
+            continue
+        block = "\n%s\ninclude(CMakeFindDependencyMacro)\n%s\n" % (
+            STATIC_DEPS_MARK, "\n".join("find_dependency(%s)" % n for n in needed))
+        with open(config, "a") as f:
+            f.write(block)
+        log("added static dependencies to %s: %s" % (pkg, ", ".join(needed)))
 
 
 def allow_ios_in_ecm(prefix):
