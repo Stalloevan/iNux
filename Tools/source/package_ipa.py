@@ -119,6 +119,30 @@ def copy_share(app, share_dir):
     print("bundled %.1f MB of app data" % (total / 1e6))
 
 
+def copy_qml(app, qml_dir):
+    """Bundles QML modules installed in the prefix (lib/qml). Static builds
+    of Qt 6 modules write 'prefer :/qt/qml/...' into qmldir, pointing at
+    resources that only exist when the module is linked through its CMake
+    target; dropping it makes the engine use the bundled files."""
+    if not qml_dir or not os.path.isdir(qml_dir):
+        return
+    dest = os.path.join(app, "qml")
+    for root, _dirs, files in os.walk(qml_dir):
+        rel = os.path.relpath(root, qml_dir)
+        for f in files:
+            if f.endswith((".a", ".cmake", ".prl")):
+                continue
+            src = os.path.join(root, f)
+            out = os.path.join(dest, rel, f)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            if f == "qmldir":
+                lines = [l for l in open(src).read().splitlines() if not l.startswith("prefer ")]
+                open(out, "w").write("\n".join(lines) + "\n")
+            else:
+                shutil.copyfile(src, out)
+    print("bundled QML modules from", qml_dir)
+
+
 def make_ipa(app, out):
     out = os.path.abspath(out)
     if os.path.exists(out):
@@ -141,6 +165,7 @@ def main():
     ap.add_argument("--bundle-id", default="com.inux.ported.app")
     ap.add_argument("--icon", default="")
     ap.add_argument("--share-dir", default="", help="install prefix share/ to bundle")
+    ap.add_argument("--qml-dir", default="", help="install prefix lib/qml to bundle")
     a = ap.parse_args()
 
     app = find_app(a.search)
@@ -149,6 +174,7 @@ def main():
     ensure_plist(app, name, a.bundle_id)
     set_icon(app, a.icon)
     copy_share(app, a.share_dir)
+    copy_qml(app, a.qml_dir)
     ipa = make_ipa(app, a.out)
     size = os.path.getsize(ipa)
     print("wrote %s (%.1f MB)" % (ipa, size / 1e6))

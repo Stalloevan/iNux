@@ -139,7 +139,7 @@ jobs:
             --out "Ported-${{ inputs.job_id }}.ipa" \
             --name "${APP_ID##*.}" \
             --bundle-id "com.inux.ported.j${{ inputs.job_id }}" \
-            --share-dir stage/share $ICON
+            --share-dir stage/share --qml-dir stage/lib/qml $ICON
 
       - name: Publish
         env:

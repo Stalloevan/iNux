@@ -45,7 +45,20 @@ void linkShareIntoAppSupport()
     char real[PATH_MAX];
     if (!realpath(exe, real))
         return;
-    const std::string share = dirName(real) + "/share";
+    const std::string bundle = dirName(real);
+    const std::string share = bundle + "/share";
+
+    // QML modules installed outside Qt (e.g. org.kde.games.core) are bundled
+    // in <bundle>/qml; tell the QML engine before it starts.
+    const std::string qml = bundle + "/qml";
+    struct stat qst;
+    if (stat(qml.c_str(), &qst) == 0) {
+        const char *old = getenv("QML_IMPORT_PATH");
+        std::string value = qml;
+        if (old && *old)
+            value += std::string(":") + old;
+        setenv("QML_IMPORT_PATH", value.c_str(), 1);
+    }
     const char *home = getenv("HOME");
     if (!home)
         return;
