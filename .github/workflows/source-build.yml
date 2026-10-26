@@ -2,10 +2,11 @@ name: Source build
 
 run-name: Build ${{ inputs.app_id || inputs.job_id }} from source (${{ inputs.job_id }})
 
-# Resolves an app to its Flathub build plan, works out which KDE Frameworks
-# it needs, cross-compiles those (plus host build tools, iNux compat
-# libraries and third-party deps) and the app for iOS, and publishes an
-# unsigned IPA. Finished modules are cached between runs, so a retry after
+# Resolves an app to its Flathub build plan, then builds the runtime it
+# needs for iOS: for Qt/KDE apps the KDE Frameworks it uses (plus host
+# build tools, iNux compat libraries and third-party deps), for GTK/GNOME
+# apps the GNOME stack with the iNux UIKit backend. Cross-compiles that and
+# the app, and publishes an unsigned IPA. Finished modules are cached between runs, so a retry after
 # a failure resumes at the module that failed.
 on:
   workflow_dispatch:
@@ -44,20 +45,9 @@ jobs:
 
       - name: Install build tools
         run: |
-          python3 -m pip install --upgrade aqtinstall pyyaml pillow
-          brew install ninja meson pkg-config gettext
+          python3 -m pip install --upgrade aqtinstall pyyaml pillow packaging
+          brew install ninja meson pkgconf gettext glib gperf librsvg vala blueprint-compiler
           echo "INUX_HOST_PREFIX_PATH=$(brew --prefix gettext)" >> "$GITHUB_ENV"
-
-      - name: Install Qt (host + iOS)
-        run: |
-          QT=$(python3 -m aqt list-qt mac ios --spec "${{ inputs.qt_series }}" --latest-version)
-          echo "Using Qt $QT"
-          bash Tools/ci/run-logged.sh "aqt install" \
-            python3 -m aqt install-qt mac ios "$QT" -O "$HOME/Qt" --autodesktop
-          echo "QT_VERSION=$QT" >> "$GITHUB_ENV"
-          echo "QT_IOS=$HOME/Qt/$QT/ios" >> "$GITHUB_ENV"
-          echo "QT_HOST=$HOME/Qt/$QT/macos" >> "$GITHUB_ENV"
-          ls "$HOME/Qt/$QT/ios/lib" | grep -E "Quick|Qml|Svg|Widgets|Xml|Test" | head -20 || true
 
       - name: Download uploaded source (if any)
         if: inputs.app_id == ''
@@ -79,13 +69,33 @@ jobs:
           echo "TOOLKIT=$TOOLKIT" >> "$GITHUB_ENV"
           echo "APP_ID=$APP" >> "$GITHUB_ENV"
           if [ "$TOOLKIT" = "gtk" ]; then
-            echo "::error title=Unsupported::GTK/GNOME apps are not supported yet (GTK has no iOS backend)."
-            exit 1
+            echo "STACK=gnome" >> "$GITHUB_ENV"
+            echo "CACHE_KEY=inux-gnome-v1" >> "$GITHUB_ENV"
+          else
+            echo "STACK=kde" >> "$GITHUB_ENV"
           fi
+
+      - name: Install Qt (host + iOS)
+        if: env.STACK == 'kde'
+        run: |
+          QT=$(python3 -m aqt list-qt mac ios --spec "${{ inputs.qt_series }}" --latest-version)
+          echo "Using Qt $QT"
+          bash Tools/ci/run-logged.sh "aqt install" \
+            python3 -m aqt install-qt mac ios "$QT" -O "$HOME/Qt" --autodesktop
+          echo "QT_VERSION=$QT" >> "$GITHUB_ENV"
+          echo "QT_IOS=$HOME/Qt/$QT/ios" >> "$GITHUB_ENV"
+          echo "QT_HOST=$HOME/Qt/$QT/macos" >> "$GITHUB_ENV"
+          echo "CACHE_KEY=inux-stage-v1-qt$QT-kf${{ inputs.kf_version }}" >> "$GITHUB_ENV"
+          ls "$HOME/Qt/$QT/ios/lib" | grep -E "Quick|Qml|Svg|Widgets|Xml|Test" | head -20 || true
 
       - name: Work out dependencies
         run: |
           python3 Tools/source/build.py --plan plan/plan.json --prefix stage --fetch-only --src-root src-plan
+          if [ "$STACK" = "gnome" ]; then
+            bash Tools/ci/run-logged.sh "GNOME recipe" python3 Tools/source/recipes/gnome.py \
+              --plan plan/plan.json --src-plan src-plan --recipe-out recipe.json --plan-out plan/plan-ios.json
+            exit 0
+          fi
           python3 Tools/source/recipes/kf_graph.py --kf-version "${{ inputs.kf_version }}" \
             --cache kf-src --json graph.json src-plan/*
           python3 Tools/source/recipes/kde.py --graph graph.json --plan plan/plan.json \
@@ -97,9 +107,9 @@ jobs:
           path: |
             stage
             stage-host
-          key: inux-stage-v1-qt${{ env.QT_VERSION }}-kf${{ inputs.kf_version }}-${{ github.run_id }}
+          key: ${{ env.CACHE_KEY }}-${{ github.run_id }}
           restore-keys: |
-            inux-stage-v1-qt${{ env.QT_VERSION }}-kf${{ inputs.kf_version }}-
+            ${{ env.CACHE_KEY }}-
 
       - name: Cross-compile for iOS
         env:
@@ -107,7 +117,7 @@ jobs:
         run: >
           bash Tools/ci/run-logged.sh "Source build"
           python3 Tools/source/build.py --plan plan/plan-ios.json --prefix stage --host-prefix stage-host
-          --qt "$QT_IOS" --prepend recipe.json --jobs 3
+          ${QT_IOS:+--qt "$QT_IOS"} --prepend recipe.json --jobs 3
           --bundle-id "com.inux.ported.j${{ inputs.job_id }}"
           --display-name "${APP_ID##*.}"
 
@@ -128,12 +138,19 @@ jobs:
           path: |
             stage
             stage-host
-          key: inux-stage-v1-qt${{ env.QT_VERSION }}-kf${{ inputs.kf_version }}-${{ github.run_id }}
+          key: ${{ env.CACHE_KEY }}-${{ github.run_id }}
 
       - name: Package IPA
         run: |
           ICON=""
           [ -f plan/files/icon.png ] && ICON="--icon plan/files/icon.png"
+          if [ "$STACK" = "gnome" ]; then
+            bash Tools/ci/run-logged.sh "Package IPA" python3 Tools/source/package_ipa.py \
+              --exe "$(cat stage/.inux-app-exe)" --layout gtk \
+              --out "Ported-${{ inputs.job_id }}.ipa" --name "${APP_ID##*.}" --app-id "$APP_ID" \
+              --bundle-id "com.inux.ported.j${{ inputs.job_id }}" --share-dir stage/share $ICON
+            exit 0
+          fi
           SEARCH=$(cat stage/.inux-app-build-dir 2>/dev/null || echo src-build)
           bash Tools/ci/run-logged.sh "Package IPA" python3 Tools/source/package_ipa.py --search "$SEARCH" \
             --out "Ported-${{ inputs.job_id }}.ipa" \

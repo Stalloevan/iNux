@@ -364,15 +364,27 @@ def build_module(module, tc, srcroot, cache, jobs, plan_dir, app_settings):
     elif bs == "meson":
         install_prefix = tc.host_prefix if host else tc.prefix
         builddir = os.path.join(srcroot, name + "-build")
-        setup = ["meson", "setup", "--wipe" if os.path.isdir(builddir) else "--reconfigure", builddir, primary,
-                 "--prefix", install_prefix, "--default-library", "static", "--buildtype", "release"]
-        if not os.path.isdir(builddir):
-            setup.remove("--reconfigure")
+        if os.path.isdir(builddir):
+            shutil.rmtree(builddir)
+        setup = ["meson", "setup", builddir, primary,
+                 "--prefix", install_prefix, "--libdir", "lib",
+                 "--default-library", "static", "--buildtype", "release",
+                 "-Dprefer_static=true", "-Db_ndebug=if-release"]
         if not host:
-            setup += ["--cross-file", write_meson_cross(tc, os.path.join(srcroot, name + "-cross.ini"))]
+            # Cross builds: the compilers, flags and the iOS pkg-config path
+            # come from the cross file. CC/CFLAGS/PKG_CONFIG_* in the
+            # environment would apply to Meson's native (build machine)
+            # lookups and break them.
+            for var in ("CC", "CXX", "CFLAGS", "CXXFLAGS", "LDFLAGS", "OBJC", "OBJCFLAGS",
+                        "PKG_CONFIG_PATH", "PKG_CONFIG_LIBDIR", "CMAKE_PREFIX_PATH"):
+                env.pop(var, None)
+            app_link = APP_LINK_ARGS if module.get("app") else []
+            setup += ["--cross-file", write_meson_cross(tc, os.path.join(srcroot, name + "-cross.ini"), app_link)]
         run(setup + opts, env=env)
         run(["meson", "compile", "-C", builddir, "-j", str(jobs)], env=env)
         run(["meson", "install", "-C", builddir], env=env)
+        if module.get("app"):
+            record_app_executable(tc, module, builddir)
     elif bs == "autotools":
         install_prefix = tc.host_prefix if host else tc.prefix
         if not os.path.exists(os.path.join(primary, "configure")) and os.path.exists(os.path.join(primary, "autogen.sh")):
@@ -503,35 +515,111 @@ def allow_ios_in_ecm(prefix):
         log("relaxed ECM platform check for iOS:", path)
 
 
-def write_meson_cross(tc, path):
+# Programs Meson runs at build time. In a cross build they must be macOS
+# programs; the iOS prefix has iOS builds of some of them (glib's), which
+# Meson would otherwise find through pkg-config.
+MESON_HOST_TOOLS = [
+    "glib-compile-resources", "glib-compile-schemas", "glib-genmarshal", "glib-mkenums",
+    "gdbus-codegen", "gtk4-update-icon-cache", "gtk4-builder-tool", "blueprint-compiler",
+    "msgfmt", "msgmerge", "xgettext", "itstool", "desktop-file-validate", "appstreamcli",
+]
+
+# Extra link arguments for a GTK app: the UIKit backend's entry point (see
+# gdk/uikit/gdkuikitentry.m) and the frameworks it uses.
+APP_LINK_ARGS = [
+    "-Wl,-e,_gdk_uikit_entry", "-Wl,-u,_gdk_uikit_entry",
+    "-framework", "UIKit", "-framework", "QuartzCore", "-framework", "CoreGraphics",
+    "-framework", "CoreFoundation", "-framework", "Foundation",
+]
+
+# Libraries every iOS link may need: libc++ (HarfBuzz and other C++ code in
+# static libraries), iconv and resolv (GLib).
+COMMON_LINK_ARGS = ["-lc++", "-liconv", "-lresolv"]
+
+
+def write_meson_cross(tc, path, extra_link=()):
     def lst(flags):
-        return ", ".join("'%s'" % f for f in flags.split())
+        items = flags.split() if isinstance(flags, str) else list(flags)
+        return ", ".join("'%s'" % f.replace("'", "\\'") for f in items)
+    compile_flags = tc.arch_flags + " -I%s/include" % tc.prefix
+    link_flags = tc.arch_flags.split() + ["-L%s/lib" % tc.prefix] + COMMON_LINK_ARGS + list(extra_link)
+    tools = []
+    for prog in MESON_HOST_TOOLS:
+        found = shutil.which(prog)
+        if found:
+            tools.append("%s = '%s'" % (prog, found))
+    vala = shutil.which("valac")
+    if vala:
+        tools.append("vala = '%s'" % vala)
+    pkgconf = shutil.which("pkg-config") or "pkg-config"
+    pcdirs = ["%s/lib/pkgconfig" % tc.prefix, "%s/share/pkgconfig" % tc.prefix]
     content = """[binaries]
 c = '%s'
 cpp = '%s'
 objc = '%s'
+objcpp = '%s'
 ar = '%s'
 strip = '%s'
-pkg-config = 'pkg-config'
+pkg-config = '%s'
+cmake = '%s'
+%s
 
 [host_machine]
 system = 'darwin'
 subsystem = 'ios'
+kernel = 'xnu'
 cpu_family = 'aarch64'
 cpu = 'arm64'
 endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+pkg_config_libdir = [%s]
+# Answers GLib's configure checks would get by running test programs.
+growing_stack = false
+have_c99_vsnprintf = true
+have_c99_snprintf = true
+have_unix98_printf = true
+va_val_copy = true
+have_proc_self_cmdline = false
 
 [built-in options]
 c_args = [%s]
 cpp_args = [%s]
 objc_args = [%s]
+objcpp_args = [%s]
 c_link_args = [%s]
 cpp_link_args = [%s]
-""" % (tc.cc, tc.cxx, tc.cc, xcrun("--find", "ar"), xcrun("--find", "strip"),
-       lst(tc.arch_flags + " -I%s/include" % tc.prefix), lst(tc.arch_flags + " -I%s/include" % tc.prefix),
-       lst(tc.arch_flags), lst(tc.arch_flags + " -L%s/lib" % tc.prefix), lst(tc.arch_flags + " -L%s/lib" % tc.prefix))
+objc_link_args = [%s]
+objcpp_link_args = [%s]
+""" % (tc.cc, tc.cxx, tc.cc, tc.cxx, xcrun("--find", "ar"), xcrun("--find", "strip"), pkgconf,
+       shutil.which("cmake") or "cmake", "\n".join(tools),
+       lst(pcdirs),
+       lst(compile_flags), lst(compile_flags), lst(compile_flags), lst(compile_flags),
+       lst(link_flags), lst(link_flags), lst(link_flags), lst(link_flags))
     open(path, "w").write(content)
     return path
+
+
+def record_app_executable(tc, module, builddir):
+    """Notes where a Meson-built app's executable is, for the packager."""
+    command = module.get("app-target") or ""
+    candidates = []
+    if command:
+        candidates.append(os.path.join(tc.prefix, "bin", command))
+    for root, _dirs, files in os.walk(builddir):
+        for f in files:
+            p = os.path.join(root, f)
+            if (not command or f == command) and os.access(p, os.X_OK) and not f.endswith((".py", ".sh")) \
+                    and "meson-" not in root and "@" not in root:
+                candidates.append(p)
+    for c in candidates:
+        if os.path.isfile(c):
+            with open(os.path.join(tc.prefix, ".inux-app-exe"), "w") as f:
+                f.write(c)
+            log("app executable:", c)
+            return
+    raise SystemExit("could not find the app's executable %r" % command)
 
 
 def main():

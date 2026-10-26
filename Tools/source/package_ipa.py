@@ -3,11 +3,16 @@
 
   package_ipa.py --search DIR --out NAME.ipa [--name "Display Name"]
                  [--bundle-id com.inux.ported.x] [--icon PNG]
+  package_ipa.py --exe PATH --layout gtk --out NAME.ipa ...
 
-Picks the largest .app under DIR (the real app, not a helper), ensures its
-Info.plist has the keys the installer needs, optionally sets an icon, and
-zips it as Payload/<App>.app. The IPA is unsigned; the user signs it with
-their own tool before installing.
+Qt/KDE apps: picks the largest .app under DIR (the real app, not a
+helper). GTK apps (built with Meson, which makes no bundle): builds the
+.app around the installed executable (--exe), with the install prefix's
+data under <App>.app/share, where the UIKit backend points GLib and GTK.
+
+Then ensures the Info.plist has the keys the installer needs, sets an icon,
+and zips it as Payload/<App>.app. The IPA is unsigned; the user signs it
+with their own tool before installing.
 """
 import argparse
 import glob
@@ -42,6 +47,20 @@ def bundle_size(path):
             except OSError:
                 pass
     return total
+
+
+def make_bundle(exe, work):
+    """A minimal .app around a plain executable."""
+    exe_name = os.path.basename(exe)
+    app = os.path.join(work, exe_name + ".app")
+    if os.path.isdir(app):
+        shutil.rmtree(app)
+    os.makedirs(app)
+    shutil.copy2(exe, os.path.join(app, exe_name))
+    os.chmod(os.path.join(app, exe_name), 0o755)
+    with open(os.path.join(app, "Info.plist"), "wb") as f:
+        plistlib.dump({"CFBundleExecutable": exe_name}, f)
+    return app
 
 
 def ensure_plist(app, name, bundle_id):
@@ -117,6 +136,19 @@ def square_opaque_icon(icon):
     # Opaque corners: paint the rounded corner pixels with the edge colour,
     # which alpha_composite above already did by compositing over bg.
     return canvas.convert("RGB")
+
+
+def svg_to_png(svg, work):
+    """Renders a scalable app icon with the host's rsvg-convert."""
+    tool = shutil.which("rsvg-convert")
+    if not tool:
+        return None
+    out = os.path.join(work, "icon-1024.png")
+    try:
+        subprocess.run([tool, "-w", "1024", "-h", "1024", "-o", out, svg], check=True)
+        return out
+    except Exception:
+        return None
 
 
 def set_icon(app, icon):
@@ -206,6 +238,47 @@ def copy_share(app, share_dir, app_names=()):
     print("bundled %.1f MB of app data" % (total / 1e6))
 
 
+# Installed data a GTK app does not use at run time on iOS.
+GTK_SHARE_EXCLUDE = SHARE_EXCLUDE | {
+    "gtk-doc", "vala", "gir-1.0", "installed-tests", "thumbnailers", "gdb", "fontconfig",
+    "xml", "emacs", "vim", "polkit-1", "systemd", "GConf", "mime", "gnome-shell",
+    "search-providers", "help", "appdata",
+}
+GTK_SHARE_EXCLUDE_PATHS = {
+    os.path.join("glib-2.0", "codegen"), os.path.join("glib-2.0", "gdb"),
+    os.path.join("glib-2.0", "valgrind"), os.path.join("icons", "Adwaita", "cursors"),
+    os.path.join("gettext"),
+}
+
+
+def copy_share_gtk(app, share_dir):
+    """Copies the prefix's share/ into <App>.app/share (XDG_DATA_DIRS on the
+    device) and compiles the GSettings schemas there."""
+    if not share_dir or not os.path.isdir(share_dir):
+        return
+    dest = os.path.join(app, "share")
+
+    def ignore(directory, names):
+        rel = os.path.relpath(directory, share_dir)
+        skipped = []
+        for n in names:
+            path = os.path.normpath(os.path.join(rel, n))
+            if (rel == "." and n in GTK_SHARE_EXCLUDE) or path in GTK_SHARE_EXCLUDE_PATHS or n.startswith("."):
+                skipped.append(n)
+        return skipped
+
+    shutil.copytree(share_dir, dest, ignore=ignore, dirs_exist_ok=True)
+    schemas = os.path.join(dest, "glib-2.0", "schemas")
+    if os.path.isdir(schemas):
+        tool = shutil.which("glib-compile-schemas")
+        if tool:
+            subprocess.run([tool, schemas], check=True)
+            print("compiled GSettings schemas")
+        else:
+            print("warning: glib-compile-schemas not found; settings will not work")
+    print("bundled %.1f MB of app data" % (bundle_size(dest) / 1e6))
+
+
 def qml_classnames(search):
     """uri -> plugin class actually linked (written by InuxIOSApp.cmake)."""
     names = {}
@@ -248,19 +321,30 @@ def copy_qml(app, qml_dir, classnames=None):
     print("bundled QML modules from", qml_dir)
 
 
-def find_app_icon(share_dir, names):
-    """The app's own icon from the installed hicolor theme, largest PNG."""
+def find_app_icon(share_dir, names, work=None):
+    """The app's own icon from the installed hicolor theme: the largest PNG,
+    or a rendering of the scalable SVG when there is no PNG."""
     best, best_size = None, 0
+    svg = None
     base = os.path.join(share_dir or "", "icons", "hicolor")
     if not os.path.isdir(base):
         return None
+    names = [n for n in names if n]
     for root, _dirs, files in os.walk(base):
         for f in files:
             stem = f.rsplit(".", 1)[0]
-            if f.endswith(".png") and any(stem == n or stem.endswith("-" + n) or stem.endswith("." + n) for n in names):
+            if not any(stem == n or stem.endswith("-" + n) or stem.endswith("." + n) for n in names):
+                continue
+            if stem.endswith("-symbolic"):
+                continue
+            if f.endswith(".png"):
                 size = os.path.getsize(os.path.join(root, f))
                 if size > best_size:
                     best, best_size = os.path.join(root, f), size
+            elif f.endswith(".svg") and svg is None:
+                svg = os.path.join(root, f)
+    if best is None and svg and work:
+        best = svg_to_png(svg, work)
     return best
 
 
@@ -280,32 +364,57 @@ def make_ipa(app, out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--search", required=True)
+    ap.add_argument("--search", default="")
+    ap.add_argument("--exe", default="", help="app executable to bundle (GTK apps)")
+    ap.add_argument("--layout", default="qt", choices=["qt", "gtk"])
     ap.add_argument("--out", required=True)
     ap.add_argument("--name", default="")
+    ap.add_argument("--app-id", default="")
     ap.add_argument("--bundle-id", default="com.inux.ported.app")
     ap.add_argument("--icon", default="")
     ap.add_argument("--share-dir", default="", help="install prefix share/ to bundle")
     ap.add_argument("--qml-dir", default="", help="install prefix lib/qml to bundle")
     a = ap.parse_args()
 
-    app = find_app(a.search)
-    name = a.name or os.path.splitext(os.path.basename(app))[0]
-    nice = metainfo_name(a.share_dir, name)
+    work = os.path.abspath("ipa-work")
+    os.makedirs(work, exist_ok=True)
+    if a.exe:
+        app = make_bundle(a.exe, work)
+    else:
+        if not a.search:
+            sys.exit("give --search or --exe")
+        app = find_app(a.search)
+    exe = os.path.splitext(os.path.basename(app))[0]
+    name = a.name or exe
+    nice = None
+    for key in (a.app_id, name, exe):
+        if key:
+            nice = metainfo_name(a.share_dir, key)
+            if nice:
+                break
     if nice:
         name = nice
-    print("packaging", app, flush=True)
+    print("packaging", app, "as", repr(name), flush=True)
     ensure_plist(app, name, a.bundle_id)
+    if a.layout == "gtk":
+        p = os.path.join(app, "Info.plist")
+        with open(p, "rb") as f:
+            data = plistlib.load(f)
+        # iPad trackpads and mice reach the app as pointer events.
+        data["UIApplicationSupportsIndirectInputEvents"] = True
+        with open(p, "wb") as f:
+            plistlib.dump(data, f)
     icon = a.icon
     if not icon:
-        exe = os.path.splitext(os.path.basename(app))[0]
-        icon = find_app_icon(a.share_dir, [exe, name, a.bundle_id.rsplit(".", 1)[-1]])
+        icon = find_app_icon(a.share_dir, [a.app_id, exe, name, a.bundle_id.rsplit(".", 1)[-1]], work)
         if icon:
             print("using icon", icon)
     set_icon(app, icon)
-    exe = os.path.splitext(os.path.basename(app))[0]
-    copy_share(app, a.share_dir, app_names={exe, name})
-    copy_qml(app, a.qml_dir, qml_classnames(a.search))
+    if a.layout == "gtk":
+        copy_share_gtk(app, a.share_dir)
+    else:
+        copy_share(app, a.share_dir, app_names={exe, name})
+        copy_qml(app, a.qml_dir, qml_classnames(a.search))
     ipa = make_ipa(app, a.out)
     size = os.path.getsize(ipa)
     print("wrote %s (%.1f MB)" % (ipa, size / 1e6))

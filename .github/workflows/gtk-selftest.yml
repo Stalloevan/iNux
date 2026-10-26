@@ -1,0 +1,118 @@
+name: GTK self-test
+
+# Proves the GTK path: cross-compiles the GNOME stack (GLib ... GTK 4 with
+# the iNux UIKit backend, libadwaita) for iOS, builds a small GTK 4 app
+# against it, packages an unsigned IPA and publishes it as the
+# "gtk-selftest" pre-release. Finished modules are cached, so a retry
+# resumes at the module that failed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Tools/source/gtk-uikit/**
+      - Tools/source/gtkapp/**
+      - Tools/source/recipes/gnome.py
+      - Tools/source/recipes/patches/libadwaita-*.patch
+      - .github/workflows/gtk-selftest.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gtk-selftest
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          python3 -m pip install --upgrade pyyaml pillow packaging
+          brew install ninja meson pkgconf gettext glib gperf librsvg
+          echo "INUX_HOST_PREFIX_PATH=$(brew --prefix gettext)" >> "$GITHUB_ENV"
+
+      - name: Plan
+        run: |
+          mkdir -p plan
+          python3 - <<'EOF'
+          import json, os
+          plan = {
+              "source": "Tools/source/gtkapp",
+              "app_id": "org.inux.GtkSelfTest",
+              "toolkit": "gtk",
+              "command": "inux-gtk-selftest",
+              "modules": [{
+                  "name": "inux-gtk-selftest",
+                  "buildsystem": "meson",
+                  "config-opts": [],
+                  "sources": [{"type": "dir", "path": os.path.abspath("Tools/source/gtkapp")}],
+              }],
+          }
+          json.dump(plan, open("plan/plan.json", "w"), indent=2)
+          EOF
+          python3 Tools/source/recipes/gnome.py --plan plan/plan.json \
+            --recipe-out recipe.json --plan-out plan/plan-ios.json
+
+      - name: Restore cached build stages
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            stage
+            stage-host
+          key: inux-gnome-v1-${{ github.run_id }}
+          restore-keys: |
+            inux-gnome-v1-
+
+      - name: Cross-compile for iOS
+        env:
+          INUX_LOG_FILE: ${{ github.workspace }}/build-gtk-selftest.log
+        run: >
+          bash Tools/ci/run-logged.sh "GTK build"
+          python3 Tools/source/build.py --plan plan/plan-ios.json --prefix stage --host-prefix stage-host
+          --prepend recipe.json --jobs 3
+          --bundle-id com.inux.ported.gtkselftest --display-name "iNux GTK"
+
+      - name: Upload build log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ci-logs >/dev/null 2>&1 || \
+            gh release create ci-logs --prerelease --title "CI logs" --notes "Full logs of failed source builds."
+          gzip -kf build-gtk-selftest.log
+          gh release upload ci-logs build-gtk-selftest.log.gz --clobber
+
+      - name: Save build stages
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            stage
+            stage-host
+          key: inux-gnome-v1-${{ github.run_id }}
+
+      - name: Package IPA
+        run: |
+          bash Tools/ci/run-logged.sh "Package IPA" python3 Tools/source/package_ipa.py \
+            --exe "$(cat stage/.inux-app-exe)" --layout gtk \
+            --out iNux-GtkSelfTest.ipa --name "iNux GTK" --app-id org.inux.GtkSelfTest \
+            --bundle-id com.inux.ported.gtkselftest --share-dir stage/share
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete gtk-selftest --cleanup-tag --yes || true
+          gh release create gtk-selftest iNux-GtkSelfTest.ipa \
+            --title "GTK self-test" --prerelease \
+            --notes "A GTK 4 app compiled from source for iOS with the iNux UIKit backend. Unsigned." \
+            --target "${{ github.sha }}"

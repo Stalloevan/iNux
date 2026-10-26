@@ -1,0 +1,147 @@
+diff --git a/meson.build b/meson.build
+index e627bf9..93b9575 100644
+--- a/meson.build
++++ b/meson.build
+@@ -49,7 +49,13 @@ ministream_dep = dependency('ministream', default_options: [
+ ])
+ 
+ target_system = host_machine.system()
+-if target_system == 'darwin'
++if target_system == 'darwin' and host_machine.subsystem() == 'ios'
++  # iNux: iOS has no AppKit; the iOS settings backend is plain GLib/GTK.
++  appleframework_modules = [
++    'Foundation',
++  ]
++  appleframeworks_dep = dependency('appleframeworks', modules: appleframework_modules)
++elif target_system == 'darwin'
+   appleframework_modules = [
+     'AppKit',
+     'Foundation',
+diff --git a/src/adw-settings-impl-ios.c b/src/adw-settings-impl-ios.c
+new file mode 100644
+index 0000000..2886ebd
+--- /dev/null
++++ b/src/adw-settings-impl-ios.c
+@@ -0,0 +1,104 @@
++/*
++ * Copyright (C) 2026 iNux contributors
++ *
++ * SPDX-License-Identifier: LGPL-2.1-or-later
++ *
++ * Settings for iOS (added by iNux). The system appearance (light or dark)
++ * is reported by the UIKit GDK backend as the display's
++ * gtk-interface-color-scheme setting; this follows it. (It reads the
++ * display, not GtkSettings, because AdwStyleManager writes its own choice
++ * back into GtkSettings.) The macOS type name is kept so the __APPLE__
++ * branch in adw-settings.c needs no change.
++ */
++
++#include "config.h"
++
++#include "adw-settings-impl-private.h"
++
++#include <gtk/gtk.h>
++
++struct _AdwSettingsImplMacOS
++{
++  AdwSettingsImpl parent_instance;
++
++  GdkDisplay *display;
++};
++
++G_DEFINE_FINAL_TYPE (AdwSettingsImplMacOS, adw_settings_impl_macos, ADW_TYPE_SETTINGS_IMPL)
++
++static void
++update_color_scheme (AdwSettingsImplMacOS *self)
++{
++  GtkInterfaceColorScheme scheme = GTK_INTERFACE_COLOR_SCHEME_DEFAULT;
++  GValue value = G_VALUE_INIT;
++
++  g_value_init (&value, GTK_TYPE_INTERFACE_COLOR_SCHEME);
++  if (gdk_display_get_setting (self->display, "gtk-interface-color-scheme", &value))
++    scheme = g_value_get_enum (&value);
++  g_value_unset (&value);
++
++  adw_settings_impl_set_color_scheme (ADW_SETTINGS_IMPL (self),
++                                      scheme == GTK_INTERFACE_COLOR_SCHEME_DARK
++                                        ? ADW_SYSTEM_COLOR_SCHEME_PREFER_DARK
++                                        : ADW_SYSTEM_COLOR_SCHEME_DEFAULT);
++}
++
++static void
++setting_changed (AdwSettingsImplMacOS *self,
++                 const char           *name)
++{
++  if (g_strcmp0 (name, "gtk-interface-color-scheme") == 0)
++    update_color_scheme (self);
++}
++
++static void
++adw_settings_impl_macos_dispose (GObject *object)
++{
++  AdwSettingsImplMacOS *self = (AdwSettingsImplMacOS *) object;
++
++  if (self->display)
++    g_signal_handlers_disconnect_by_data (self->display, self);
++  g_clear_object (&self->display);
++
++  G_OBJECT_CLASS (adw_settings_impl_macos_parent_class)->dispose (object);
++}
++
++static void
++adw_settings_impl_macos_class_init (AdwSettingsImplMacOSClass *klass)
++{
++  G_OBJECT_CLASS (klass)->dispose = adw_settings_impl_macos_dispose;
++}
++
++static void
++adw_settings_impl_macos_init (AdwSettingsImplMacOS *self)
++{
++}
++
++AdwSettingsImpl *
++adw_settings_impl_macos_new (gboolean enable_color_scheme,
++                             gboolean enable_high_contrast,
++                             gboolean enable_accent_colors,
++                             gboolean enable_document_font_name,
++                             gboolean enable_monospace_font_name)
++{
++  AdwSettingsImplMacOS *self = g_object_new (ADW_TYPE_SETTINGS_IMPL_MACOS, NULL);
++  GdkDisplay *display = gdk_display_get_default ();
++  gboolean color_scheme = enable_color_scheme && display != NULL;
++
++  if (color_scheme)
++    {
++      self->display = g_object_ref (display);
++      g_signal_connect_swapped (display, "setting-changed",
++                                G_CALLBACK (setting_changed), self);
++      update_color_scheme (self);
++    }
++
++  adw_settings_impl_set_features (ADW_SETTINGS_IMPL (self),
++                                  color_scheme,
++                                  FALSE,
++                                  FALSE,
++                                  FALSE,
++                                  FALSE);
++
++  return ADW_SETTINGS_IMPL (self);
++}
+diff --git a/src/meson.build b/src/meson.build
+index 6139def..0fdfa34 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -359,7 +359,12 @@ else
+   config_h.set('_ADW_EXTERN', '__attribute__((visibility("default"))) extern')
+ endif
+ 
+-if target_system == 'darwin'
++if target_system == 'darwin' and host_machine.subsystem() == 'ios'
++  libadwaita_deps += appleframeworks_dep
++  libadwaita_private_sources += [
++    'adw-settings-impl-ios.c',
++  ]
++elif target_system == 'darwin'
+   libadwaita_deps += appleframeworks_dep
+   libadwaita_private_sources += [
+     'adw-settings-impl-macos.c',
