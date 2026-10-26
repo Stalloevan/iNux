@@ -1,7 +1,9 @@
 # iNux
 
 An iOS app that takes a Linux app and produces an unsigned `.ipa` by
-**recompiling it from source for iOS**, using this repository's CI.
+**recompiling it from source for iOS**, using this repository's CI. Qt/KDE
+apps and GTK 4 / GNOME apps are supported; both run natively, with no
+emulation and no X11.
 
 ## How it works
 
@@ -11,12 +13,15 @@ An iOS app that takes a Linux app and produces an unsigned `.ipa` by
 2. The app triggers the **Source build** workflow through the GitHub API.
 3. `Tools/source/resolve.py` fetches the app's Flathub manifest (the list of
    modules, their sources and build systems) and writes a build plan.
-4. For a Qt/KDE app, `Tools/source/recipes/kde.py` adds the runtime
-   dependencies that `org.kde.Platform` would normally provide — Extra CMake
-   Modules and KDE Frameworks 6 — in dependency order.
+4. The recipe for the app's toolkit adds what its Flatpak runtime would
+   normally provide: for a Qt/KDE app (`recipes/kde.py`) Extra CMake
+   Modules and the KDE Frameworks it uses; for a GTK/GNOME app
+   (`recipes/gnome.py`) GLib, Cairo, Pango, GTK 4 with the iNux UIKit
+   backend, libadwaita, and the Adwaita icons and fonts.
 5. `Tools/source/build.py` cross-compiles every module for iOS (device
-   arm64) with the iOS toolchain and Qt for iOS (installed by `aqtinstall`),
-   staging them into a prefix, then builds the app itself.
+   arm64), statically, with CMake or Meson (and Qt for iOS from
+   `aqtinstall` for Qt apps), staging them into a prefix, then builds the
+   app itself.
 6. The resulting `.app` is wrapped as an unsigned IPA and published as a
    release. The app downloads it. Sign it with your usual tool to install.
 
@@ -58,9 +63,31 @@ the owner and repository name and a GitHub token (classic: `repo` +
   yet exercised may need a further patch. Builds are cached per module, so
   a retry continues where the last attempt stopped, and the full log of a
   failed build is attached to the `ci-logs` release.
-- **GTK/GNOME apps**: not supported yet. GTK has no iOS backend, so the
-  stack (glib, GTK) and a UIKit GDK backend still need to be built; this is
-  the next piece of work (see the open task in the repo).
+- **GTK/GNOME apps (GTK 4)**: working end to end for Disk Usage Analyzer
+  (`org.gnome.baobab`, Vala + GTK 4 + libadwaita) and the GTK self-test.
+  GTK has no iOS backend upstream, so iNux adds one
+  (`Tools/source/gtk-uikit`, patched into GTK 4.24):
+  - each GTK window or popup is a UIView; GTK renders with Cairo and the
+    frames are handed to the view's layer (no OpenGL needed);
+  - touches become GTK touch events (GTK's own gestures and kinetic
+    scrolling apply), iPad trackpads and mice become pointer and scroll
+    events, hardware keyboards become key events;
+  - text fields bring up the on-screen keyboard through an iOS input
+    method; copy and paste of text use the system pasteboard;
+  - an app's main window fills the screen (minus the safe area and the
+    keyboard); dialogs are centred over it; menus and popovers close on a
+    tap outside them; light/dark mode follows iOS;
+  - GTK runs the app's unmodified `main()` on its own thread, while UIKit
+    keeps the main thread (`gdkuikitentry.m` is the entry point);
+  - libadwaita is patched to take light/dark mode from the backend.
+  GSettings are kept in a key file in the app's container; fonts are the
+  bundled Adwaita fonts plus the iOS system fonts. GTK 3 apps are not
+  supported (they would need a GTK 3 backend too). Apps written in Rust,
+  Python or JavaScript, and libraries outside the GNOME core (librsvg,
+  GStreamer, WebKit, ...), are not built yet.
+  The **GTK self-test** workflow builds a small GTK app for devices; **GTK
+  simulator test** runs one in the iOS Simulator and publishes a
+  screenshot.
 - Everything is unsigned; sign the IPA with your own tool before installing.
 
 ## The emulator (kept, switched off)

@@ -88,10 +88,12 @@ class Toolchain:
             with open(self.sim_compat, "w") as f:
                 f.write("/* iNux: declarations missing from the iOS Simulator SDK headers. */\n"
                         "#pragma once\n"
+                        "#ifndef __ASSEMBLER__\n"
                         "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
                         "int pipe2(int fds[2], int flags);\n"
                         "int dup3(int oldfd, int newfd, int flags);\n"
-                        "#ifdef __cplusplus\n}\n#endif\n")
+                        "#ifdef __cplusplus\n}\n#endif\n"
+                        "#endif\n")
 
     def qt_host(self):
         # aqt --autodesktop installs the host Qt next to the iOS one.
