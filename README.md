@@ -35,11 +35,17 @@ the owner and repository name and a GitHub token (classic: `repo` +
 
 - **Command-line and pure-Qt apps**: compile cleanly and run natively at
   full speed. This is the self-tested path.
-- **KDE apps**: the KDE Frameworks they need are cross-compiled from source
-  (`recipes/kde.py`). The common, Qt-only frameworks are covered; an app
-  that needs a framework pulling in X11, Wayland, D-Bus system services or
-  other Linux-only pieces will fail at that framework's build with a clear
-  error. Add frameworks with the workflow's `frameworks` input.
+- **KDE apps**: in progress. The pipeline resolves the app, cross-compiles
+  Extra CMake Modules, patches ECM's platform check so KDE Frameworks will
+  configure for iOS, and compiles the frameworks from source
+  (`recipes/kde.py`). KDE does not officially target iOS, so individual
+  frameworks use APIs Qt omits there and need small per-framework patches,
+  kept under `recipes/patches/` and applied by the build driver. The first
+  (kconfig's `QProcess` use) is in place; frameworks like kconfig's
+  `kconf_update` helper, kxmlgui and kwindowsystem still need their own
+  patches before a full KDE app such as kcalc links. The mechanism and the
+  path to add them are documented in `recipes/patches/README.md`. Choose
+  which frameworks to build with the workflow's `frameworks` input.
 - **GTK/GNOME apps**: not supported yet. GTK has no iOS backend, so the
   stack (glib, GTK) and a UIKit GDK backend still need to be built; this is
   the next piece of work (see the open task in the repo).
