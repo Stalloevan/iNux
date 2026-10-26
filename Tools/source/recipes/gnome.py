@@ -196,22 +196,25 @@ def stack_modules():
     return mods
 
 
-GTK3_RE = re.compile(r"gtk\+-3\.0|gtk3|libhandy")
+GTK3_RE = re.compile(r"""['"](gtk\+-3\.0|libhandy-1)['"\s>=]""")
+GTK4_RE = re.compile(r"""['"]gtk4['"\s>=]""")
 
 
 def uses_gtk3(src_plan):
     """GTK 3 apps need a GTK 3 backend, which does not exist yet."""
     if not src_plan or not os.path.isdir(src_plan):
         return False
+    gtk3 = gtk4 = False
     for root, _dirs, files in os.walk(src_plan):
         for f in files:
             if f in ("meson.build", "configure.ac", "CMakeLists.txt"):
                 try:
-                    if GTK3_RE.search(open(os.path.join(root, f), errors="replace").read()):
-                        return True
+                    text = open(os.path.join(root, f), errors="replace").read()
                 except OSError:
-                    pass
-    return False
+                    continue
+                gtk3 = gtk3 or bool(GTK3_RE.search(text))
+                gtk4 = gtk4 or bool(GTK4_RE.search(text))
+    return gtk3 and not gtk4
 
 
 def main():
