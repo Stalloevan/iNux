@@ -14,9 +14,17 @@
 #define INUX_QPROCESS_H
 
 // Only active in C++ files that can see Qt: CMake's configure checks also
-// get this flag, and must not be affected.
-#if defined(__cplusplus) && defined(__has_include)
+// get this flag, and must not be affected. moc's preprocessor does not know
+// __has_include, so it gets its own branch.
+#if defined(Q_MOC_RUN)
+#define INUX_QPROCESS_ACTIVE 1
+#elif defined(__cplusplus) && defined(__has_include)
 #if __has_include(<QtCore/qglobal.h>)
+#define INUX_QPROCESS_ACTIVE 1
+#endif
+#endif
+
+#ifdef INUX_QPROCESS_ACTIVE
 
 #include <QtCore/qglobal.h>
 #include <QtCore/qtcore-config.h>
@@ -25,8 +33,15 @@
 
 #include <QtCore/qiodevice.h>
 #include <QtCore/qstringlist.h>
-#include <QtCore/qprocess.h> // QProcessEnvironment (feature processenvironment)
 #include <functional>
+
+// Qt's qprocess.h provides QProcessEnvironment and, since Qt 6.10, a
+// minimal QProcess holding only splitCommand(). Include it with that class
+// renamed, so the full class below can take the name. Its include guard
+// keeps later #include <QProcess> lines from bringing it back.
+#define QProcess InuxQtMinimalQProcess
+#include <QtCore/qprocess.h>
+#undef QProcess
 
 QT_BEGIN_NAMESPACE
 
@@ -116,6 +131,8 @@ public:
                               const QString &workingDirectory = QString(), qint64 *pid = nullptr);
     static QStringList systemEnvironment();
     static QString nullDevice();
+    // Qt >= 6.10 implements this even without process support; the
+    // declaration matches its symbol, so Qt's implementation is used.
     static QStringList splitCommand(QStringView command);
 
 public Q_SLOTS:
@@ -153,6 +170,5 @@ private:
 QT_END_NAMESPACE
 
 #endif // !QT_CONFIG(process)
-#endif // __has_include(<QtCore/qglobal.h>)
-#endif // __cplusplus && __has_include
+#endif // INUX_QPROCESS_ACTIVE
 #endif // INUX_QPROCESS_H

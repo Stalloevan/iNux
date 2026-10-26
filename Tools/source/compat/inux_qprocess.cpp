@@ -155,8 +155,10 @@ QString QProcess::nullDevice()
     return QStringLiteral("/dev/null");
 }
 
-// Same rules as Qt: whitespace separates arguments, double quotes group,
-// and three consecutive quotes produce one literal quote.
+#if QT_VERSION < QT_VERSION_CHECK(6, 10, 0)
+// Older Qt has no QProcess at all without process support, so provide
+// splitCommand with the same rules: whitespace separates arguments, double
+// quotes group, and three consecutive quotes produce one literal quote.
 QStringList QProcess::splitCommand(QStringView command)
 {
     QStringList args;
@@ -190,6 +192,7 @@ QStringList QProcess::splitCommand(QStringView command)
         args += tmp;
     return args;
 }
+#endif
 
 QT_END_NAMESPACE
 
