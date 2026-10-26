@@ -1,0 +1,158 @@
+name: GTK simulator test
+
+# Runs a GTK app on the iOS Simulator: builds the GNOME stack and the app
+# for the simulator (same sources and backend as device builds), launches
+# it, and publishes a screenshot and the app's console output as the
+# "gtk-simulator" pre-release. This is the check that the UIKit backend
+# actually starts, draws and keeps running, which compiling cannot show.
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "selftest, or a Flathub app id (e.g. org.gnome.baobab)"
+        required: false
+        default: selftest
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gtk-simulator
+  cancel-in-progress: false
+
+env:
+  INUX_IOS_SDK: iphonesimulator
+
+jobs:
+  run:
+    runs-on: macos-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          python3 -m pip install --upgrade pyyaml pillow packaging
+          brew install ninja meson pkgconf gettext glib gperf librsvg vala libadwaita blueprint-compiler itstool desktop-file-utils
+          echo "INUX_HOST_PREFIX_PATH=$(brew --prefix gettext)" >> "$GITHUB_ENV"
+
+      - name: Plan
+        run: |
+          mkdir -p plan
+          if [ "${{ inputs.app }}" = "selftest" ] || [ -z "${{ inputs.app }}" ]; then
+            python3 - <<'EOF'
+          import json, os
+          plan = {
+              "source": "Tools/source/gtkapp",
+              "app_id": "org.inux.GtkSelfTest",
+              "toolkit": "gtk",
+              "command": "inux-gtk-selftest",
+              "modules": [{
+                  "name": "inux-gtk-selftest",
+                  "buildsystem": "meson",
+                  "config-opts": [],
+                  "sources": [{"type": "dir", "path": os.path.abspath("Tools/source/gtkapp")}],
+              }],
+          }
+          json.dump(plan, open("plan/plan.json", "w"), indent=2)
+          EOF
+          else
+            python3 Tools/source/resolve.py --app-id "${{ inputs.app }}" --out plan
+          fi
+          APP=$(python3 -c "import json;print(json.load(open('plan/plan.json'))['app_id'])")
+          echo "APP_ID=$APP" >> "$GITHUB_ENV"
+          python3 Tools/source/build.py --plan plan/plan.json --prefix stage --fetch-only --src-root src-plan
+          python3 Tools/source/recipes/gnome.py --plan plan/plan.json --src-plan src-plan \
+            --recipe-out recipe.json --plan-out plan/plan-ios.json
+
+      - name: Restore cached build stages
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            stage
+            stage-host
+          key: inux-gnome-sim-v1-${{ github.run_id }}
+          restore-keys: |
+            inux-gnome-sim-v1-
+
+      - name: Cross-compile for the iOS Simulator
+        env:
+          INUX_LOG_FILE: ${{ github.workspace }}/build-gtk-simulator.log
+        run: >
+          bash Tools/ci/run-logged.sh "Simulator build"
+          python3 Tools/source/build.py --plan plan/plan-ios.json --prefix stage --host-prefix stage-host
+          --prepend recipe.json --jobs 3 --bundle-id com.inux.simtest --display-name "$APP_ID"
+
+      - name: Upload build log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ci-logs >/dev/null 2>&1 || \
+            gh release create ci-logs --prerelease --title "CI logs" --notes "Full logs of failed source builds."
+          gzip -kf build-gtk-simulator.log
+          gh release upload ci-logs build-gtk-simulator.log.gz --clobber
+
+      - name: Save build stages
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            stage
+            stage-host
+          key: inux-gnome-sim-v1-${{ github.run_id }}
+
+      - name: Package
+        run: |
+          python3 Tools/source/package_ipa.py --exe "$(cat stage/.inux-app-exe)" --layout gtk --simulator \
+            --out sim.ipa --app-id "$APP_ID" --bundle-id com.inux.simtest --share-dir stage/share
+          rm -rf simapp && mkdir simapp && cd simapp && unzip -q ../sim.ipa
+
+      - name: Run on the simulator
+        run: |
+          set -x
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)['devices']
+          for rt in sorted(d, reverse=True):
+              for dev in d[rt]:
+                  if dev['name'].startswith('iPhone'):
+                      print(dev['udid']); sys.exit()")
+          echo "device $DEVICE"
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          APP=$(ls -d simapp/Payload/*.app)
+          xcrun simctl install "$DEVICE" "$APP"
+          # Console output (GLib/GTK messages) goes to console.txt.
+          ( xcrun simctl launch --console-pty "$DEVICE" com.inux.simtest > console.txt 2>&1 & )
+          sleep 45
+          xcrun simctl io "$DEVICE" screenshot screenshot.png
+          sleep 15
+          xcrun simctl io "$DEVICE" screenshot screenshot-later.png
+          xcrun simctl spawn "$DEVICE" launchctl list | grep -i simtest > running.txt || echo "not running" > running.txt
+          cat running.txt
+          head -c 20000 console.txt || true
+          # Crash reports, if the app died.
+          mkdir -p crashes
+          cp ~/Library/Logs/DiagnosticReports/*.ips crashes/ 2>/dev/null || true
+          ls crashes
+
+      - name: Publish results
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete gtk-simulator --cleanup-tag --yes || true
+          FILES=""
+          for f in screenshot.png screenshot-later.png console.txt running.txt; do
+            [ -f "$f" ] && FILES="$FILES $f"
+          done
+          for f in crashes/*.ips; do [ -f "$f" ] && FILES="$FILES $f"; done
+          gh release create gtk-simulator $FILES \
+            --title "GTK on the iOS Simulator ($APP_ID)" --prerelease \
+            --notes "Screenshot and console output of a GTK app running on the iOS Simulator with the iNux UIKit backend." \
+            --target "${{ github.sha }}"

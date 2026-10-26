@@ -104,13 +104,15 @@ ICON_SIZES = {  # file name -> pixels
 
 
 def square_opaque_icon(icon):
-    """The icon as an opaque, edge-to-edge square (PIL image) or None.
+    """The icon as an opaque square (PIL image) or None.
 
     iOS draws transparent pixels black and applies its own rounded mask, so
     a transparent margin shows up as a black frame around a shrunken icon.
-    Crop to the artwork's bounds, fill the square with it, and flatten what
-    little transparency is left (rounded corners) onto the artwork's edge
-    colour."""
+    The artwork is cropped to its bounds. A (nearly) square tile, like most
+    KDE icons, then fills the whole square, with what little transparency
+    is left (rounded corners) flattened onto its edge colour. Other shapes
+    (GNOME's round or irregular icons) are centred on a white tile with a
+    margin, the way iOS shows such icons."""
     try:
         from PIL import Image
     except ImportError:
@@ -122,6 +124,16 @@ def square_opaque_icon(icon):
         im = im.crop(box)
     w, h = im.size
     side = max(w, h)
+
+    # How much of the cropped square the artwork covers.
+    hist = im.getchannel("A").point(lambda v: 255 if v > 200 else 0).histogram()
+    coverage = hist[255] / float(side * side)
+    if coverage < 0.88:
+        side = int(side / 0.8)
+        canvas = Image.new("RGBA", (side, side), (255, 255, 255, 255))
+        canvas.alpha_composite(im, ((side - w) // 2, (side - h) // 2))
+        return canvas.convert("RGB")
+
     # Edge colour: average of the opaque pixels along the border.
     px = im.load()
     samples = []
@@ -133,8 +145,6 @@ def square_opaque_icon(icon):
     bg = tuple(sum(c[i] for c in samples) // len(samples) for i in range(3)) + (255,)
     canvas = Image.new("RGBA", (side, side), bg)
     canvas.alpha_composite(im, ((side - w) // 2, (side - h) // 2))
-    # Opaque corners: paint the rounded corner pixels with the edge colour,
-    # which alpha_composite above already did by compositing over bg.
     return canvas.convert("RGB")
 
 
@@ -272,6 +282,7 @@ def copy_share_gtk(app, share_dir):
         return skipped
 
     shutil.copytree(share_dir, dest, ignore=ignore, dirs_exist_ok=True)
+    print("bundled share/: " + ", ".join(sorted(os.listdir(dest))))
     schemas = os.path.join(dest, "glib-2.0", "schemas")
     if os.path.isdir(schemas):
         tool = shutil.which("glib-compile-schemas")
@@ -378,6 +389,7 @@ def main():
     ap.add_argument("--icon", default="")
     ap.add_argument("--share-dir", default="", help="install prefix share/ to bundle")
     ap.add_argument("--qml-dir", default="", help="install prefix lib/qml to bundle")
+    ap.add_argument("--simulator", action="store_true", help="the app was built for the iOS Simulator")
     a = ap.parse_args()
 
     work = os.path.abspath("ipa-work")
@@ -400,12 +412,16 @@ def main():
         name = nice
     print("packaging", app, "as", repr(name), flush=True)
     ensure_plist(app, name, a.bundle_id)
-    if a.layout == "gtk":
+    if a.layout == "gtk" or a.simulator:
         p = os.path.join(app, "Info.plist")
         with open(p, "rb") as f:
             data = plistlib.load(f)
-        # iPad trackpads and mice reach the app as pointer events.
-        data["UIApplicationSupportsIndirectInputEvents"] = True
+        if a.layout == "gtk":
+            # iPad trackpads and mice reach the app as pointer events.
+            data["UIApplicationSupportsIndirectInputEvents"] = True
+        if a.simulator:
+            data["CFBundleSupportedPlatforms"] = ["iPhoneSimulator"]
+            data["DTPlatformName"] = "iphonesimulator"
         with open(p, "wb") as f:
             plistlib.dump(data, f)
     icon = a.icon

@@ -34,7 +34,10 @@ import tarfile
 import urllib.request
 import zipfile
 
-SDK = "iphoneos"
+# INUX_IOS_SDK=iphonesimulator builds for the iOS Simulator instead of
+# devices (used by CI to launch apps and take screenshots).
+SDK = os.environ.get("INUX_IOS_SDK", "iphoneos")
+SIMULATOR = SDK == "iphonesimulator"
 DEPLOYMENT = "17.0"  # Qt 6.10 for iOS is built for iOS 17
 HERE = os.path.dirname(os.path.abspath(__file__))
 STAMP_VERSION = "3"
@@ -69,7 +72,8 @@ class Toolchain:
         self.sysroot = xcrun("--show-sdk-path")
         self.cc = xcrun("--find", "clang")
         self.cxx = xcrun("--find", "clang++")
-        self.arch_flags = "-arch arm64 -isysroot %s -miphoneos-version-min=%s" % (self.sysroot, DEPLOYMENT)
+        self.arch_flags = "-arch arm64 -isysroot %s -m%s-version-min=%s" % (
+            self.sysroot, "ios-simulator" if SIMULATOR else "iphoneos", DEPLOYMENT)
         # Extra host prefixes (e.g. Homebrew's gettext for host ki18n).
         self.host_extra = [p for p in os.environ.get("INUX_HOST_PREFIX_PATH", "").split(":") if p]
         for p in (prefix, host_prefix):
@@ -125,6 +129,7 @@ class Toolchain:
         args = [
             "-DCMAKE_TOOLCHAIN_FILE=" + os.path.join(HERE, "ios.toolchain.cmake"),
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + DEPLOYMENT,
+            "-DCMAKE_OSX_SYSROOT=" + self.sysroot,
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_INSTALL_PREFIX=" + self.prefix,
             "-DCMAKE_PREFIX_PATH=" + ";".join(prefixes),
@@ -301,6 +306,8 @@ def module_hash(module):
     data += open(os.path.join(HERE, "ios.toolchain.cmake")).read()
     if not is_host(module):
         data += "ios-env-" + IOS_ENV_VERSION
+        if SIMULATOR:
+            data += "-simulator"
     if module.get("app"):
         for f in ("InuxIOSApp.cmake", "inux_ios_bootstrap.cpp"):
             data += open(os.path.join(HERE, "ios", f)).read()
