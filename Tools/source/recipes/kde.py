@@ -185,7 +185,8 @@ def third_party_modules(packages):
 
 
 def framework_modules(order, kf_tag):
-    mods = []
+    mods = [{"name": "inux-tool-entry", "buildsystem": "cmake-ninja", "config-opts": [],
+             "sources": [{"type": "dir", "path": os.path.join(SOURCE, "compat-toolentry")}]}]
     for name in order:
         if name in IOS_SKIP:
             continue

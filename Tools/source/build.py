@@ -134,6 +134,10 @@ class Toolchain:
         if module.get("kde"):
             compat_header = os.path.join(self.prefix, "include", "inux-compat", "inux_qprocess.h")
             compat_libs = [os.path.join(self.prefix, "lib", n) for n in ("libInuxCompat.a", "libintl.a")]
+            if not module.get("app"):
+                # Tools inside library builds need an entry point (see
+                # compat-toolentry); the app uses Qt's real one.
+                compat_libs.append(os.path.join(self.prefix, "lib", "libInuxToolEntry.a"))
             args += [
                 "-DKF6_HOST_TOOLING=" + os.path.join(self.host_prefix, "lib", "cmake"),
                 "-DCMAKE_CXX_FLAGS=%s -include %s" % (self.arch_flags, compat_header),
