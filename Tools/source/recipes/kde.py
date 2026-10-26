@@ -81,6 +81,11 @@ FRAMEWORK_PATCHES = {
     "knewstuff": ["patches/knewstuff-static-build.patch"],
 }
 
+# Patches for app-side modules from Flathub manifests, by module name.
+PLAN_PATCHES = {
+    "libkdegames": ["patches/libkdegames-static.patch"],
+}
+
 # Fixes for static builds, needed on the host side too.
 HOST_PATCHES = {
     "kpackage": ["patches/kpackage-static-build.patch"],
@@ -234,6 +239,8 @@ def main():
     plan_modules = [m for m in plan["modules"] if not m.get("missing")]
     for i, m in enumerate(plan_modules):
         m["kde"] = True
+        if m["name"] in PLAN_PATCHES:
+            m["inux-patches"] = PLAN_PATCHES[m["name"]]
         m["config-opts"] = COMMON_KDE + [o for o in m.get("config-opts", [])
                                          if not o.startswith("-DCMAKE_INSTALL_PREFIX")]
         if i == len(plan_modules) - 1:
