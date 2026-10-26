@@ -79,6 +79,19 @@ class Toolchain:
         for p in (prefix, host_prefix):
             for d in ("bin", "lib", "include", "lib/pkgconfig", "share"):
                 os.makedirs(os.path.join(p, d), exist_ok=True)
+        self.sim_compat = ""
+        if SIMULATOR:
+            # The simulator's libSystem exports a few functions its headers
+            # do not declare, so link-based configure checks find them and
+            # the code then fails to compile. Declare them.
+            self.sim_compat = os.path.join(prefix, "include", "inux-simulator-compat.h")
+            with open(self.sim_compat, "w") as f:
+                f.write("/* iNux: declarations missing from the iOS Simulator SDK headers. */\n"
+                        "#pragma once\n"
+                        "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+                        "int pipe2(int fds[2], int flags);\n"
+                        "int dup3(int oldfd, int newfd, int flags);\n"
+                        "#ifdef __cplusplus\n}\n#endif\n")
 
     def qt_host(self):
         # aqt --autodesktop installs the host Qt next to the iOS one.
@@ -551,6 +564,8 @@ def write_meson_cross(tc, path, extra_link=()):
     # -w: third-party code floods the log with warnings (GLib alone emits
     # hundreds of thousands of lines); errors are what matter here.
     compile_flags = "-I%s/include -w" % tc.prefix
+    if tc.sim_compat:
+        compile_flags += " -include " + tc.sim_compat
     link_flags = ["-L%s/lib" % tc.prefix] + COMMON_LINK_ARGS + list(extra_link)
     tools = []
     host_path = tc.env(host=True)["PATH"]
