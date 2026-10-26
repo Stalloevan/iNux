@@ -34,18 +34,30 @@ the owner and repository name and a GitHub token (classic: `repo` +
 ## What works, and what is still rough
 
 - **Command-line and pure-Qt apps**: compile cleanly and run natively at
-  full speed. This is the self-tested path.
-- **KDE apps**: in progress. The pipeline resolves the app, cross-compiles
-  Extra CMake Modules, patches ECM's platform check so KDE Frameworks will
-  configure for iOS, and compiles the frameworks from source
-  (`recipes/kde.py`). KDE does not officially target iOS, so individual
-  frameworks use APIs Qt omits there and need small per-framework patches,
-  kept under `recipes/patches/` and applied by the build driver. The first
-  (kconfig's `QProcess` use) is in place; frameworks like kconfig's
-  `kconf_update` helper, kxmlgui and kwindowsystem still need their own
-  patches before a full KDE app such as kcalc links. The mechanism and the
-  path to add them are documented in `recipes/patches/README.md`. Choose
-  which frameworks to build with the workflow's `frameworks` input.
+  full speed. This is the self-tested path. iOS 17 or later is required
+  (Qt 6.10's minimum).
+- **KDE apps**: working end to end for KBreakOut (`org.kde.kbreakout`), which
+  needs 22 KDE Frameworks plus libkdegames, OpenAL and libsndfile. The
+  pipeline works out each app's framework closure from its own CMake files
+  (`recipes/kf_graph.py`), builds KDE's build-time tools for the Mac, and
+  cross-compiles everything else statically for iOS. The iOS side relies on
+  a small translation layer:
+  - `compat/`: a `QProcess` stand-in (Qt for iOS has none; launching a
+    program fails cleanly, as it does for any unavailable program) and a
+    libintl without catalogs (English UI);
+  - patched frameworks: kcoreaddons (Unix helpers built on iOS), kdbusaddons
+    (`KDBusService` without D-Bus), kcrash (no crash-reporter process),
+    kconfig (no helper programs), plus fixes for upstream static-build bugs
+    in kpackage, knewstuff and libkdegames (`recipes/patches/`);
+  - a KDocTools stand-in (no help viewer on iOS);
+  - `ios/`: an adapter that turns the app's unmodified executable into an
+    iOS bundle (Qt's UIKit entry point, static Qt and QML plugins, including
+    QML plugins KDE installs without CMake targets), and a bootstrap that
+    makes bundled data visible to `QStandardPaths`.
+  Other KDE apps go through the same steps; ones that use frameworks not
+  yet exercised may need a further patch. Builds are cached per module, so
+  a retry continues where the last attempt stopped, and the full log of a
+  failed build is attached to the `ci-logs` release.
 - **GTK/GNOME apps**: not supported yet. GTK has no iOS backend, so the
   stack (glib, GTK) and a UIKit GDK backend still need to be built; this is
   the next piece of work (see the open task in the repo).
