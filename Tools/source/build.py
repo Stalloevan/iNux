@@ -418,6 +418,9 @@ def build_module(module, tc, srcroot, cache, jobs, plan_dir, app_settings):
         conf = ["./configure", "--prefix=" + install_prefix, "--enable-static", "--disable-shared"]
         if not host:
             conf += ["--host=aarch64-apple-darwin"]
+            # Static GLib's own system dependencies, which its .pc file
+            # does not always list (see COMMON_LINK_ARGS).
+            env["LIBS"] = (env.get("LIBS", "") + " " + " ".join(COMMON_LINK_ARGS)).strip()
         run(conf + opts, cwd=primary, env=env)
         run(["make", "-j", str(jobs)] + module.get("make-args", []), cwd=primary, env=env)
         run(["make", "install"], cwd=primary, env=env)
