@@ -196,6 +196,44 @@ def stack_modules():
     return mods
 
 
+# Libraries of the org.gnome.Platform runtime beyond the core stack, built
+# only for apps that ask for them (by pkg-config name in their Meson files).
+RUNTIME_EXTRAS = {
+    "gee-0.8": {
+        "name": "libgee", "buildsystem": "autotools",
+        "config-opts": ["--disable-introspection", "--disable-doc"],
+        "sources": [{"type": "archive", "url": GNOME % ("libgee", "0.20", "libgee", "0.20.8")}],
+    },
+    "json-glib-1.0": {
+        "name": "json-glib", "buildsystem": "meson",
+        "config-opts": ["-Dintrospection=disabled", "-Ddocumentation=disabled", "-Dgtk_doc=disabled",
+                        "-Dman=false", "-Dtests=false", "-Dconformance=false", "-Dinstalled_tests=false"],
+        "sources": [{"type": "archive", "url": GNOME % ("json-glib", "1.10", "json-glib", "1.10.8")}],
+    },
+}
+
+DEPENDENCY_RE = re.compile(r"""dependency\(\s*['"]([A-Za-z0-9_.+-]+)['"]""")
+
+
+def wanted_extras(src_plan, provided):
+    """Runtime libraries the plan's modules depend on, in recipe order."""
+    wanted = set()
+    if src_plan and os.path.isdir(src_plan):
+        for root, dirs, files in os.walk(src_plan):
+            dirs[:] = [d for d in dirs if d not in (".git", "subprojects")]
+            if "meson.build" in files:
+                try:
+                    text = open(os.path.join(root, "meson.build"), errors="replace").read()
+                except OSError:
+                    continue
+                wanted.update(DEPENDENCY_RE.findall(text))
+    mods = []
+    for pkg, spec in RUNTIME_EXTRAS.items():
+        if pkg in wanted and spec["name"] not in provided:
+            mods.append(json.loads(json.dumps(spec)))
+    return mods
+
+
 GTK3_RE = re.compile(r"""['"](gtk\+-3\.0|libhandy-1)['"\s>=]""")
 GTK4_RE = re.compile(r"""['"]gtk4['"\s>=]""")
 
@@ -268,6 +306,9 @@ def main():
                          "can be built for iOS so far" % lang)
 
     modules = stack_modules()
+    extras = wanted_extras(a.src_plan, {m["name"] for m in plan_modules})
+    # After the core stack, so adding one does not invalidate cached builds.
+    modules += extras
     json.dump({"modules": modules}, open(a.recipe_out, "w"), indent=2)
 
     for i, m in enumerate(plan_modules):

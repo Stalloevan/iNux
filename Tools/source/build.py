@@ -585,9 +585,11 @@ def write_meson_cross(tc, path, extra_link=(), sim_compat=False):
         tools.append("vala = '%s'" % vala)
         # Bindings for libraries Vala does not ship (libadwaita) come from
         # Homebrew; the C side still compiles against the iOS prefix.
-        d = os.path.join(os.path.dirname(os.path.dirname(vala)), "share", "vala", "vapi")
-        if os.path.isdir(d):
-            vala_args += ["--vapidir", d]
+        # Bindings installed by libraries built here (e.g. libgee) first.
+        for d in (os.path.join(tc.prefix, "share", "vala", "vapi"),
+                  os.path.join(os.path.dirname(os.path.dirname(vala)), "share", "vala", "vapi")):
+            if os.path.isdir(d):
+                vala_args += ["--vapidir", d]
     pkgconf = shutil.which("pkg-config") or "pkg-config"
     pcdirs = ["%s/lib/pkgconfig" % tc.prefix, "%s/share/pkgconfig" % tc.prefix]
     # The target flags are part of the compiler command, not just c_args:
