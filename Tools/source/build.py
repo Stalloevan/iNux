@@ -675,6 +675,15 @@ def record_app_executable(tc, module, builddir):
                 candidates.append(p)
     for c in candidates:
         if os.path.isfile(c):
+            with open(c, "rb") as f:
+                head = f.read(256)
+            # iOS runs only Mach-O programs, and signing tools reject a
+            # bundle whose main executable is anything else.
+            if head[:4] not in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
+                first = head.split(b"\n", 1)[0].decode("utf-8", "replace")
+                kind = "a script (%s)" % first if first.startswith("#!") else "not an iOS program"
+                raise SystemExit("the app's command %s is %s; only compiled apps can run on iOS"
+                                 % (os.path.basename(c), kind))
             with open(os.path.join(tc.prefix, ".inux-app-exe"), "w") as f:
                 f.write(c)
             log("app executable:", c)

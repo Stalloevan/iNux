@@ -200,6 +200,36 @@ GTK3_RE = re.compile(r"""['"](gtk\+-3\.0|libhandy-1)['"\s>=]""")
 GTK4_RE = re.compile(r"""['"]gtk4['"\s>=]""")
 
 
+def app_language(src_plan):
+    """The language the app is written in, when the stack cannot run it.
+
+    Only compiled apps (C, C++, Vala) become native iOS programs. Python
+    (PyGObject), JavaScript (GJS) and Rust apps need a runtime or a
+    toolchain that is not part of the iOS build yet."""
+    if not src_plan or not os.path.isdir(src_plan):
+        return None
+    found = None
+    for root, dirs, files in os.walk(src_plan):
+        dirs[:] = [d for d in dirs if d not in (".git", "subprojects", "tests", "docs", "help", "po")]
+        for f in files:
+            path = os.path.join(root, f)
+            if f == "Cargo.toml":
+                return "Rust"
+            if f.endswith((".py", ".py.in", ".in", ".js")) or f == "meson.build":
+                try:
+                    text = open(path, errors="replace").read(200000)
+                except OSError:
+                    continue
+                if f.endswith((".py", ".py.in")) and "gi.require_version" in text:
+                    found = "Python"
+                elif f.endswith((".js", ".in")) and ("imports.gi" in text or "from 'gi://" in text
+                                                     or text.startswith("#!@GJS@") or "#!/usr/bin/env gjs" in text):
+                    found = "JavaScript (GJS)"
+                elif f.endswith(".in") and text.startswith("#!@PYTHON@"):
+                    found = "Python"
+    return found
+
+
 def uses_gtk3(src_plan):
     """GTK 3 apps need a GTK 3 backend, which does not exist yet."""
     if not src_plan or not os.path.isdir(src_plan):
@@ -232,6 +262,10 @@ def main():
         app_dir = os.path.join(a.src_plan, plan_modules[-1]["name"])
     if uses_gtk3(app_dir):
         raise SystemExit("this app uses GTK 3; only GTK 4 apps are supported so far")
+    lang = app_language(app_dir)
+    if lang:
+        raise SystemExit("this app is written in %s; only compiled GTK apps (C, C++, Vala) "
+                         "can be built for iOS so far" % lang)
 
     modules = stack_modules()
     json.dump({"modules": modules}, open(a.recipe_out, "w"), indent=2)
